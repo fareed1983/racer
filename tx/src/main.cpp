@@ -42,9 +42,11 @@ char str1[128] = {0}, str2[32];
 
 #define WINDOW_SIZE 5
 
-unsigned long prevsp = 1;
+unsigned long prevsp = 999999;
 int sensorValue = 0, a; 
 float reading;
+
+enum { NOS, INIT, FAIL, CONN, TRX } connState, prevConnState;
 
 typedef struct {
   float readings[WINDOW_SIZE];
@@ -89,6 +91,10 @@ float addReading(reading_t *r, float newReading) {
 void setup() {
   Serial.begin(115200);
   Wire.begin();
+
+  connState = INIT;
+  prevConnState = NOS;
+
 
   pinMode(LED, OUTPUT);
   pinMode(RFM69_RST, OUTPUT);
@@ -195,12 +201,33 @@ void loop() {
 
   if (sp >= 1024) sp = 1023;
 
-  if (prevsp != sp) {
+  if (prevsp != sp || prevConnState != connState) {
+    unsigned long  cst;
+    switch(connState) { // it's a common anode RGB LED
+      case NOS:
+      case INIT:
+        cst = 0x00;
+        break;
+      case FAIL:
+        cst = 0x18;
+        break;
+      case CONN:
+        cst = 0x24;
+        break;
+      case TRX:
+        cst = 0x30;
+        break;
+      default:
+        cst = 0x38;
+    }
+
     digitalWrite(PIN_LATCH, LOW);
-    shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0xff & (sp >> 8));
+    shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0xff & ((sp >> 8) | cst));
     shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0xff & sp);
     digitalWrite(PIN_LATCH, HIGH);
+    
     prevsp = sp;
+    prevConnState = connState;
 
     // Serial.print(sensorValue);
     // Serial.print(":");
@@ -268,18 +295,24 @@ void loop() {
     display.setCursor(45, 20);
     display.print(str1);
 
-    if (cmd.th != cth || cmd.st != cst || lastCmd + 250 > ms) {
+    if (cmd.th != cth || cmd.st != cst || lastCmd + 250 < ms) {
       cmd.th = cth;
       cmd.st = cst;
-      display.setCursor(0, 50);
       if (!rf69_manager.sendtoWait((uint8_t *)&cmd, sizeof(cmd), RX_ADDR)) {
-        display.print("Send fail!");
+        connState = FAIL;
       } else {
-        display.print("Send OK!");
+        connState = TRX;
       }
 
       lastCmd = ms;
-    }
+    } 
+    
+    if (connState == TRX && lastCmd + 100 < ms) connState = CONN;
+
+    display.setCursor(90, 20);
+
+    sprintf(str1, "A:%d", connState);
+    display.print(str1);
 
     display.display();
   }
