@@ -24,57 +24,79 @@
 /* Radio stuff */
 #define RF69_FREQ 433.0
 
-#define MY_ADDRESS   2
-
 #define RFM69_CS    8
 #define RFM69_INT   3
 #define RFM69_RST   4
 #define LED        13
 
+#define RX_ADDR   1
+#define TX_ADDR   2
+
+
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
-RHReliableDatagram rf69_manager(rf69, MY_ADDRESS);
+RHReliableDatagram rf69_manager(rf69, TX_ADDR);
 
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 char str1[128] = {0}, str2[32];
 
-#define WINDOW_SIZE 10
-float readings[WINDOW_SIZE]; // Array to store the last 'n' readings
-int readIndex = 0; // Index of the current reading
-float total = 0; // Running total of the readings
-float average = 0; // The average of the readings
+#define WINDOW_SIZE 5
+
 unsigned long prevsp = 1;
 int sensorValue = 0, a; 
 float reading;
 
+typedef struct {
+  float readings[WINDOW_SIZE];
+  int readIndex = 0;
+  float total = 0;
+  float average = 0;
+} reading_t;
+
+struct {
+  int th;
+  int st;  
+} cmd;
+
+#define REV_TRANS_CNT 10 // How many iterations with switch pressed to change reverse state
+reading_t rTh, rVx, rVy;
+
+int prevSteer = 0, prevThrottle = 0, cenVx = 0, cenVy = 0, rev = false, revTrans = REV_TRANS_CNT, lastCmd = 0;
+
 // Initialize the readings array to 0
-void initReadings() {
+void initReadings(reading_t *r) {
     for (int i = 0; i < WINDOW_SIZE; i++) {
-        readings[i] = 0.0;
+        r->readings[i] = 0.0;
     }
 }
 
 // Function to add a new reading and compute the moving average
-float addReading(float newReading) {
+float addReading(reading_t *r, float newReading) {
     // Subtract the oldest reading from total and replace it with the new reading
-    total = total - readings[readIndex];
-    readings[readIndex] = newReading;
-    total = total + newReading;
+    r->total = r->total - r->readings[r->readIndex];
+    r->readings[r->readIndex] = newReading;
+    r->total = r->total + newReading;
     
     // Advance to the next position in the array
-    readIndex = (readIndex + 1) % WINDOW_SIZE;
+    r->readIndex = (r->readIndex + 1) % WINDOW_SIZE;
     
     // Calculate the average
-    average = total / WINDOW_SIZE;
+    r->average = r->total / WINDOW_SIZE;
     
-    return average;
+    return r->average;
 }
 
 void setup() {
   Serial.begin(115200);
   Wire.begin();
+
+  pinMode(LED, OUTPUT);
+  pinMode(RFM69_RST, OUTPUT);
+  digitalWrite(RFM69_RST, LOW);
   
-  initReadings();
+  initReadings(&rTh);
+  initReadings(&rVx);
+  initReadings(&rVy);
 
   pinMode(PIN_LATCH, OUTPUT);
   pinMode(PIN_DATA, OUTPUT);
@@ -124,12 +146,15 @@ void setup() {
   } else if (!rf69.setFrequency(RF69_FREQ)) {
      strcat(str1, "\nFreq fail");
   } else {
-    strcat(str1, "Radio OK");
+    strcat(str1, "\nRadio OK");
   }
   
   rf69.setTxPower(20, true);
   uint8_t key[] = "FareedR11051983";
   rf69.setEncryptionKey(key);
+
+  rf69_manager.setTimeout(10);
+  rf69_manager.setRetries(3);
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
@@ -141,12 +166,13 @@ void setup() {
   display.println("v0.1");
   display.println(str1);
   display.display();
-
-  delay(1000);
+  
+  delay(2000);
 }
 
 
 void loop() {
+  int ms = millis();
 
   sensorValue = analogRead(PIN_FRC);
   reading = (pow(10, sensorValue / 1024.0) - 1.0) * 20.0;
@@ -156,10 +182,11 @@ void loop() {
 
   unsigned long sp = 0;
 
-  //reading /= 2.0;
   if (reading > 15) reading = 15;
-  reading = addReading(reading);
+  if (!revTrans < REV_TRANS_CNT) reading = 0; // allow cooldown when transitioning reverse state
 
+  reading = addReading(&rTh, reading);
+  
   if (reading > 1) {
     sp = pow(2, int(reading)) - 1;
   } else {
@@ -182,29 +209,81 @@ void loop() {
 
   sensorValue = analogRead(PIN_VRX);
   
-  display.clearDisplay();
-
   int vrx, vry, vsw;
 
-  vrx = analogRead(PIN_VRX);
-  vry = analogRead(PIN_VRY);
+  vrx = addReading(&rVx, analogRead(PIN_VRX));
+  vry = addReading(&rVy, analogRead(PIN_VRY));
+
   vsw = digitalRead(PIN_VSW);
 
-  sprintf(str1, "x:%d", vrx);
-  display.setCursor(0, 10);
-  display.print(str1);
 
-  sprintf(str1, "y:%d", vry);
-  display.setCursor(45, 10);
-  display.print(str1);
+  // The first time readIndex becomes zero
+  if (!cenVx && !rVx.readIndex) {
+    
+    cenVx = rVx.average;
+    cenVy = rVy.average;
 
-  sprintf(str1, "s:%d", vsw);
-  display.setCursor(90, 10);
-  display.print(str1);
+    display.setCursor(0, 10);
 
-  display.display();
+    Serial.print("cenVx: ");
+    Serial.println(cenVx);
+
+  } else if (cenVx) {
+    display.clearDisplay();
+
+    if (!vsw) {
+      revTrans --;
+      if (!revTrans) {
+        rev = !rev;
+      }
+    } else {
+      revTrans = REV_TRANS_CNT;
+    }
+
+    int cth, cst;
+
+    cth = (rTh.average * 10.0);
+    if (cth > 100) cth = 100;
+    if (rev) cth *= -1;
+
+    cst = (cenVx - vrx) / 5.12;
+    
+    sprintf(str1, "S:%d", cst);
+    display.setCursor(0, 10);
+    display.print(str1);
+
+    sprintf(str1, "y:%d", vry);
+    display.setCursor(45, 10);
+    display.print(str1);
+
+    sprintf(str1, "s:%d", vsw);
+    display.setCursor(90, 10);
+    display.print(str1);
+
+    sprintf(str1, "T:%d", cth);
+    display.setCursor(0, 20);
+    display.print(str1);
+
+    sprintf(str1, "R:%d", rev);
+    display.setCursor(45, 20);
+    display.print(str1);
+
+    if (cmd.th != cth || cmd.st != cst || lastCmd + 250 > ms) {
+      cmd.th = cth;
+      cmd.st = cst;
+      display.setCursor(0, 50);
+      if (!rf69_manager.sendtoWait((uint8_t *)&cmd, sizeof(cmd), RX_ADDR)) {
+        display.print("Send fail!");
+      } else {
+        display.print("Send OK!");
+      }
+
+      lastCmd = ms;
+    }
+
+    display.display();
+  }
 
   delay(5);
-
 }
 

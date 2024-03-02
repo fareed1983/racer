@@ -142,6 +142,11 @@ void loop() {
     if (rf69_manager.recvfromAck(buf, &len, &from)) {
       buf[len] = 0; // zero out remaining string
 
+      Serial.print("Got packet from #"); Serial.print(from);
+      Serial.print(" [RSSI :");
+      Serial.print(rf69.lastRssi());
+      Serial.print("] : ");
+      Serial.println((char*)buf);
       Blink(LED, 40, 3); // blink LED 3 times, 40ms between blinks
 
       // Send a reply back to the originator client
