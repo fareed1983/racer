@@ -3,6 +3,10 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+#include <SPI.h>
+#include <RH_RF69.h>
+#include <RHReliableDatagram.h>
+
 #define PIN_CLK 10
 #define PIN_LATCH 11
 #define PIN_DATA 12
@@ -16,6 +20,20 @@
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define ADDR_OLED 0x3C
+
+/* Radio stuff */
+#define RF69_FREQ 433.0
+
+#define MY_ADDRESS   2
+
+#define RFM69_CS    8
+#define RFM69_INT   3
+#define RFM69_RST   4
+#define LED        13
+
+RH_RF69 rf69(RFM69_CS, RFM69_INT);
+RHReliableDatagram rf69_manager(rf69, MY_ADDRESS);
+
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 char str1[128] = {0}, str2[32];
@@ -101,7 +119,17 @@ void setup() {
     for(;;);
   } 
 
-  Serial.println("SSD1306 init success");
+  if (!rf69_manager.init()) {
+    strcat(str1, "\nRFM69 fail");
+  } else if (!rf69.setFrequency(RF69_FREQ)) {
+     strcat(str1, "\nFreq fail");
+  } else {
+    strcat(str1, "Radio OK");
+  }
+  
+  rf69.setTxPower(20, true);
+  uint8_t key[] = "FareedR11051983";
+  rf69.setEncryptionKey(key);
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
@@ -110,10 +138,8 @@ void setup() {
   display.setTextSize(2);
   display.println("Racer RX");
   display.setTextSize(1);
-  display.println("");
-  display.println(str1);
-  display.println("");
   display.println("v0.1");
+  display.println(str1);
   display.display();
 
   delay(1000);
