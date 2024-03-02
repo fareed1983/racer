@@ -183,7 +183,7 @@ void loop() {
   unsigned long sp = 0;
 
   if (reading > 15) reading = 15;
-  if (!revTrans < REV_TRANS_CNT) reading = 0; // allow cooldown when transitioning reverse state
+  if (revTrans < REV_TRANS_CNT) reading = 0; // allow cooldown when transitioning reverse state
 
   reading = addReading(&rTh, reading);
   
