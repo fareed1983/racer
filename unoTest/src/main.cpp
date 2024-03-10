@@ -252,7 +252,6 @@ void loop() {
   display.setCursor(64, 0);
   display.print(line);
 
-
   vrx = analogRead(PIN_VRX);
   vry = analogRead(PIN_VRY);
 
