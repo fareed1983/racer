@@ -6,6 +6,9 @@
 #include <RHReliableDatagram.h>
 #include <Servo.h>
 #include <FastLED.h>
+#include <IRremote.hpp>
+#include <Ultrasonic.h>
+
 
 
 // Radio stuff
@@ -22,6 +25,17 @@
 #define PIN_SERVO A1
 #define PIN_ESC A2
 
+#define PIN_MOTION A3
+
+#define PIN_IR_RT 10
+#define PIN_IR_LT 11
+#define PIN_IR_FR 12
+#define PIN_IR_BK 13
+
+
+#define PIN_UL_TRIG_0 5
+#define PIN_UL_ECHO_0 6
+
 #define POS_MIN 1250
 #define POS_MAX 1750
 #define POS_CEN 1500
@@ -31,6 +45,8 @@
 #define ESC_MAX 2000
 
 #define NUM_LEDS 8
+
+#define DANGER_DIST 50
 
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
 RHReliableDatagram rf69_manager(rf69, RX_ADDR);
@@ -47,9 +63,22 @@ struct {
 
 char str1[128] = {0}, str2[32];
 
-void setup() {
-  Serial.begin(115200);
+struct {
+  IRsend *sender;
+  char pin;
+  char cmd;
+} irs[4];
 
+Ultrasonic ultraFront(PIN_UL_TRIG_0, PIN_UL_ECHO_0);	
+
+void setup() {
+  irs[0] = { sender: new IRsend(), pin: PIN_IR_RT, cmd: 'r' };
+  irs[1] = { sender: new IRsend(), pin: PIN_IR_LT, cmd: 'l' };
+  irs[2] = { sender: new IRsend(), pin: PIN_IR_FR, cmd: 'f' };
+  irs[3] = { sender: new IRsend(), pin: PIN_IR_BK, cmd: 'b' };
+  
+  Serial.begin(115200);
+  
   pinMode(LED, OUTPUT);
   pinMode(RFM69_RST, OUTPUT);
   digitalWrite(RFM69_RST, LOW);
@@ -85,46 +114,93 @@ void setup() {
   rf69.setEncryptionKey(key);
 
   FastLED.addLeds<NEOPIXEL, PIN_LED_DATA>(leds, NUM_LEDS);  // GRB ordering is assumed
-  FastLED.setBrightness(50);
+  FastLED.setBrightness(2);
 
   savox.attach(PIN_SERVO, POS_MIN, POS_MAX);
   savox.writeMicroseconds(POS_CEN); 
 
   esc.attach(PIN_ESC, POS_MIN, POS_MAX);
   esc.writeMicroseconds(ESC_MID); 
+
+  for (int i = 0; i < 4; i++) irs[i].sender->begin(irs[i].pin);
+
+  delay(2000);
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print("No cmd!         ");
 }
+
+int iri = 0;
+
+int distFront = 100, prevSs = POS_CEN, prevEs = ESC_MID;
 
 void loop() {
 
   uint8_t len = sizeof(cmd);
   uint8_t from;
+  bool upd = false;
 
-  if (rf69_manager.recvfromAckTimeout((uint8_t *)&cmd, &len, 500, &from)) {
-
-    lcd.clear();
-    lcd.setCursor(0, 1);
-    sprintf(str1, "th:%d st:%d", cmd.th, cmd.st);
-    lcd.print(str1);
+  if (rf69_manager.recvfromAckTimeout((uint8_t *)&cmd, &len, 150, &from)) {
 
     int ss = map(cmd.st, -100, 100, POS_MIN, POS_MAX);
     if (cmd.th < 1) cmd.th /= 2;
     int es = map(cmd.th, -100, 100, ESC_MIN, ESC_MAX);
 
-    Serial.print("ss:");
-    Serial.print(ss);
-    Serial.print(", th:");
-    Serial.println(es);
+    if (distFront < DANGER_DIST && cmd.th > 0) {
+      es = ESC_MID;
+    }
 
-    savox.writeMicroseconds(ss); 
-    esc.writeMicroseconds(es); 
+    if (prevSs != ss) {
+      savox.writeMicroseconds(ss);
+      prevSs = ss;
+      upd = true;
+    }
+
+    if (prevEs != es) {
+      esc.writeMicroseconds(es);
+      prevEs = es;
+      upd = true;
+    }
+    
+    if (upd) {
+      lcd.setCursor(0, 1);
+      sprintf(str1, "T:%03d   S:%03d", cmd.th, cmd.st);
+      lcd.print(str1);
+    }
   } else {
-    lcd.clear();
+    if (prevEs != ESC_MID || prevSs != POS_CEN) {
+      prevEs = ESC_MID;
+      prevSs = POS_CEN;
+      savox.writeMicroseconds(POS_CEN); 
+      esc.writeMicroseconds(ESC_MID);
+    } 
     lcd.setCursor(0, 1);
-    lcd.print("No cmd!");
-    savox.writeMicroseconds(POS_CEN); 
-    esc.writeMicroseconds(ESC_MID); 
+    lcd.print("No cmd!         ");
   }
 
-  delay(50);
+  int d;
+  d = ultraFront.read();
+
+  if (distFront != d) {
+    distFront = d;
+    if (distFront < DANGER_DIST && cmd.th > 0 && prevEs != ESC_MID) {
+        esc.writeMicroseconds(ESC_MID); 
+    }
+
+    lcd.setCursor(0, 0);
+    sprintf(str1, "F:%03dcm   ", distFront);
+    lcd.print(str1);
+  }
+
+  irs[iri].sender->sendNEC(0x0102, irs[iri].cmd, 0);
+  iri++;
+  if (iri == 4) iri = 0;
+
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB(random(0, 255), random(0, 255), random(0, 255));
+  }
+
+  FastLED.show();
+
 }
 

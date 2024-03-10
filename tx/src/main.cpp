@@ -7,9 +7,13 @@
 #include <RH_RF69.h>
 #include <RHReliableDatagram.h>
 
+#include <IRremote.hpp>
+
 #define PIN_CLK 10
 #define PIN_LATCH 11
 #define PIN_DATA 12
+
+#define PIN_IR_RCV A4
 
 #define PIN_VRX A1
 #define PIN_VRY A2
@@ -60,7 +64,7 @@ struct {
   int st;  
 } cmd;
 
-#define REV_TRANS_CNT 10 // How many iterations with switch pressed to change reverse state
+#define REV_TRANS_CNT 8 // How many iterations with switch pressed to change reverse state
 reading_t rTh, rVx, rVy;
 
 int prevSteer = 0, prevThrottle = 0, cenVx = 0, cenVy = 0, rev = false, revTrans = REV_TRANS_CNT, lastCmd = 0;
@@ -173,12 +177,14 @@ void setup() {
   display.println(str1);
   display.display();
   
+  IrReceiver.begin(PIN_IR_RCV, ENABLE_LED_FEEDBACK);
+
   delay(2000);
 }
 
 
 void loop() {
-  int ms = millis();
+  unsigned long ms = millis();
 
   sensorValue = analogRead(PIN_FRC);
   reading = (pow(10, sensorValue / 1024.0) - 1.0) * 20.0;
@@ -234,6 +240,30 @@ void loop() {
     // Serial.println(sp);
   }
 
+  static char irCmd = '-';
+  static unsigned long lastIrCmd;
+
+  if (lastIrCmd + 250 < ms) irCmd = '-';
+
+  if (IrReceiver.decode()) {
+
+    if (IrReceiver.decodedIRData.protocol == NEC && IrReceiver.decodedIRData.address == 0x0102) {
+      Serial.print(F("Proto:"));
+      Serial.print(getProtocolString(IrReceiver.decodedIRData.protocol));
+      Serial.print(F(", data:"));
+      PrintULL::print(&Serial, IrReceiver.decodedIRData.decodedRawData, HEX);
+      Serial.print(F(", addr: "));
+      Serial.print(IrReceiver.decodedIRData.address, HEX);
+      Serial.print(F(", cmd: "));
+      Serial.println(IrReceiver.decodedIRData.command, HEX);
+      irCmd =  IrReceiver.decodedIRData.command;
+      lastIrCmd = ms;
+    }
+
+    IrReceiver.resume();
+  }
+
+  
   sensorValue = analogRead(PIN_VRX);
   
   int vrx, vry, vsw;
@@ -295,7 +325,7 @@ void loop() {
     display.setCursor(45, 20);
     display.print(str1);
 
-    if (cmd.th != cth || cmd.st != cst || lastCmd + 250 < ms) {
+    if (cmd.th != cth || cmd.st != cst || lastCmd + 100 < ms) {
       cmd.th = cth;
       cmd.st = cst;
       if (!rf69_manager.sendtoWait((uint8_t *)&cmd, sizeof(cmd), RX_ADDR)) {
@@ -310,13 +340,16 @@ void loop() {
     if (connState == TRX && lastCmd + 100 < ms) connState = CONN;
 
     display.setCursor(90, 20);
-
     sprintf(str1, "A:%d", connState);
+    display.print(str1);
+
+    display.setCursor(0, 30);
+    sprintf(str1, "D:%c", irCmd);
     display.print(str1);
 
     display.display();
   }
-
-  delay(5);
+   
+  delay(10);
 }
 
