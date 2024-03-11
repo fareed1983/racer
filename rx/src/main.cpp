@@ -8,7 +8,9 @@
 #include <FastLED.h>
 #include <IRremote.hpp>
 #include <Ultrasonic.h>
+#include <MPU6050_light.h>
 
+MPU6050 mpu(Wire);
 
 
 // Radio stuff
@@ -25,13 +27,14 @@
 #define PIN_SERVO A1
 #define PIN_ESC A2
 
-#define PIN_MOTION A3
+#define PIN_MPU_INT A3
+
+#define PIN_BATT_SENSE 9
 
 #define PIN_IR_RT 10
 #define PIN_IR_LT 11
 #define PIN_IR_FR 12
 #define PIN_IR_BK 13
-
 
 #define PIN_UL_TRIG_0 5
 #define PIN_UL_ECHO_0 6
@@ -55,7 +58,6 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 Servo savox, esc;
 
-
 struct {
   int th;
   int st;  
@@ -70,6 +72,8 @@ struct {
 } irs[4];
 
 Ultrasonic ultraFront(PIN_UL_TRIG_0, PIN_UL_ECHO_0);	
+
+void mpuInterrupt();
 
 void setup() {
   irs[0] = { sender: new IRsend(), pin: PIN_IR_RT, cmd: 'r' };
@@ -112,7 +116,7 @@ void setup() {
   rf69.setTxPower(20, true);
   uint8_t key[] = "FareedR11051983";
   rf69.setEncryptionKey(key);
-
+  
   FastLED.addLeds<NEOPIXEL, PIN_LED_DATA>(leds, NUM_LEDS);  // GRB ordering is assumed
   FastLED.setBrightness(2);
 
@@ -124,24 +128,70 @@ void setup() {
 
   for (int i = 0; i < 4; i++) irs[i].sender->begin(irs[i].pin);
 
+  byte error, address;
+  int nDevices;
+  Serial.begin(115200);
+
+  Serial.println("Scanning...");
+
+  Wire.begin();
+  nDevices = 0;
+  for(address = 1; address < 127; address++ )
+  {
+    // The i2c_scanner uses the return value of
+    // the Write.endTransmisstion to see if
+    // a device did acknowledge to the address.
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0)
+    {
+      Serial.print("I2C device found at address 0x");
+      if (address<16)
+        Serial.print("0");
+      Serial.print(address,HEX);
+      Serial.println("  !");
+
+      nDevices++;
+    }
+    else if (error==4)
+    {
+      Serial.print("Unknown error at address 0x");
+      if (address<16)
+        Serial.print("0");
+      Serial.println(address,HEX);
+    }
+  }
+  if (nDevices == 0)
+    Serial.println("No I2C devices found\n");
+  else
+    Serial.println("done\n");
+
+  mpu.begin();
+  mpu.calcOffsets(true,true); // gyro and accelero
+
   delay(2000);
   lcd.clear();
   lcd.setCursor(0, 1);
   lcd.print("No cmd!         ");
+
+  attachInterrupt(digitalPinToInterrupt(PIN_MPU_INT), mpuInterrupt, RISING); 
+
 }
 
 int iri = 0;
 
-int distFront = 100, prevSs = POS_CEN, prevEs = ESC_MID;
+int distFront = -10, prevSs = POS_CEN, prevEs = ESC_MID;
+float prevBattV = 0, lastYaw = 0;
 
 void loop() {
 
   uint8_t len = sizeof(cmd);
   uint8_t from;
   bool upd = false;
+  
 
   if (rf69_manager.recvfromAckTimeout((uint8_t *)&cmd, &len, 150, &from)) {
-
     int ss = map(cmd.st, -100, 100, POS_MIN, POS_MAX);
     if (cmd.th < 1) cmd.th /= 2;
     int es = map(cmd.th, -100, 100, ESC_MIN, ESC_MAX);
@@ -164,10 +214,11 @@ void loop() {
     
     if (upd) {
       lcd.setCursor(0, 1);
-      sprintf(str1, "T:%03d   S:%03d", cmd.th, cmd.st);
+      sprintf(str1, "T:%03d  S:%03d", cmd.th, cmd.st);
       lcd.print(str1);
     }
   } else {
+
     if (prevEs != ESC_MID || prevSs != POS_CEN) {
       prevEs = ESC_MID;
       prevSs = POS_CEN;
@@ -180,27 +231,79 @@ void loop() {
 
   int d;
   d = ultraFront.read();
+  upd = false;
 
   if (distFront != d) {
     distFront = d;
     if (distFront < DANGER_DIST && cmd.th > 0 && prevEs != ESC_MID) {
         esc.writeMicroseconds(ESC_MID); 
     }
-
-    lcd.setCursor(0, 0);
-    sprintf(str1, "F:%03dcm   ", distFront);
-    lcd.print(str1);
+    upd = true;
   }
 
   irs[iri].sender->sendNEC(0x0102, irs[iri].cmd, 0);
   iri++;
   if (iri == 4) iri = 0;
 
-  for (int i = 0; i < NUM_LEDS; i++) {
-    leds[i] = CRGB(random(0, 255), random(0, 255), random(0, 255));
+  for (d = 0; d < NUM_LEDS; d++) {
+    leds[d] = CRGB(random(0, 255), random(0, 255), random(0, 255));
   }
+
+  // Wire.beginTransmission(0x03);
+  // Wire.write("hello world");
+  // Wire.endTransmission(0x03);
+
+  float v;
+  d = analogRead(PIN_BATT_SENSE);
+  v = d * 7.54 / 405.0;
+  if (v != prevBattV) {
+    prevBattV = v;
+    upd = true;
+  }
+
+  mpu.update();
+  v = mpu.getAngleZ();
+
+  if (v != lastYaw) {
+    lastYaw = v;
+    upd = true;
+  }
+
+  if (upd) {
+    lcd.setCursor(0, 0);
+    sprintf(str1, "D%03d V%.01f Y%.01f    ", distFront, prevBattV, lastYaw);
+    lcd.print(str1);
+  }
+
+
+  // static unsigned long lastPrint = 0;
+  // if(millis() - lastPrint > 1000){ // print data every second
+  //   Serial.print(F("TEMPERATURE: "));Serial.println(mpu.getTemp());
+  //   Serial.print(F("ACCELERO  X: "));Serial.print(mpu.getAccX());
+  //   Serial.print("\tY: ");Serial.print(mpu.getAccY());
+  //   Serial.print("\tZ: ");Serial.println(mpu.getAccZ());
+  
+  //   Serial.print(F("GYRO      X: "));Serial.print(mpu.getGyroX());
+  //   Serial.print("\tY: ");Serial.print(mpu.getGyroY());
+  //   Serial.print("\tZ: ");Serial.println(mpu.getGyroZ());
+  
+  //   Serial.print(F("ACC ANGLE X: "));Serial.print(mpu.getAccAngleX());
+  //   Serial.print("\tY: ");Serial.println(mpu.getAccAngleY());
+    
+  //   Serial.print(F("ANGLE     X: "));Serial.print(mpu.getAngleX());
+  //   Serial.print("\tY: ");Serial.print(mpu.getAngleY());
+  //   Serial.print("\tZ: ");Serial.println(mpu.getAngleZ());
+  //   Serial.println(F("=====================================================\n"));
+  //   lastPrint = millis();
+  // }
+
 
   FastLED.show();
 
 }
 
+void mpuInterrupt() {
+  Serial.println("Interrupted!");
+
+  
+}
