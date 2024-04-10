@@ -15,6 +15,8 @@
 
 #define PIN_IR_RCV A4
 
+#define PIN_VBAT A7
+
 #define PIN_VRX A1
 #define PIN_VRY A2
 #define PIN_VSW A3
@@ -36,6 +38,7 @@
 #define RX_ADDR   1
 #define TX_ADDR   2
 
+#define SPKR_ITER 4
 
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
 RHReliableDatagram rf69_manager(rf69, TX_ADDR);
@@ -67,7 +70,8 @@ struct {
 #define REV_TRANS_CNT 8 // How many iterations with switch pressed to change reverse state
 reading_t rTh, rVx, rVy;
 
-int prevSteer = 0, prevThrottle = 0, cenVx = 0, cenVy = 0, rev = false, revTrans = REV_TRANS_CNT, lastCmd = 0;
+int prevSteer = 0, prevThrottle = 0, cenVx = 0, cenVy = 0, prevRev = false, rev = false, revTrans = REV_TRANS_CNT, lastCmd = 0, txFailCount = 0;
+uint8_t spkr = 0;
 
 // Initialize the readings array to 0
 void initReadings(reading_t *r) {
@@ -111,6 +115,11 @@ void setup() {
   pinMode(PIN_LATCH, OUTPUT);
   pinMode(PIN_DATA, OUTPUT);
   pinMode(PIN_CLK, OUTPUT);
+
+  digitalWrite(PIN_LATCH, LOW);
+  shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0b00000000);
+  shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0b00111110);
+  digitalWrite(PIN_LATCH, HIGH);
 
   pinMode(PIN_VSW, INPUT_PULLUP);
 
@@ -204,34 +213,40 @@ void loop() {
   } else {
     sp = reading;
   }
+  
+  /*
+    0b00rgbBY0
+  */
 
   if (sp >= 1024) sp = 1023;
 
-  if (prevsp != sp || prevConnState != connState) {
-    unsigned long  cst;
+  if (prevsp != sp || prevConnState != connState || prevRev != rev || spkr == 1 || spkr == SPKR_ITER) {
+    unsigned long  rgbby;
     switch(connState) { // it's a common anode RGB LED
       case NOS:
       case INIT:
-        cst = 0x00;
+        rgbby = 0b00111110;
         break;
       case FAIL:
-        cst = 0x18;
+        rgbby = 0b00100000;
         break;
       case CONN:
-        cst = 0x24;
+        rgbby = 0b00001000;
         break;
       case TRX:
-        cst = 0x30;
+        rgbby = 0b00010000;
         break;
       default:
-        cst = 0x38;
+        rgbby = 0b00100000;
     }
 
-    digitalWrite(PIN_LATCH, LOW);
-    shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0xff & ((sp >> 8) | cst));
-    shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0xff & sp);
-    digitalWrite(PIN_LATCH, HIGH);
+    if (rev) rgbby |= 0b00000100;
     
+    digitalWrite(PIN_LATCH, LOW);
+    shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, (0b11111110 & (sp >> 2)) | ((spkr > 1) ? 1 : 0));
+    shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, (0b00111110 | (0b11000000 & sp << 6) | (0xb00000001 & sp >> 2)) ^ rgbby);
+    digitalWrite(PIN_LATCH, HIGH);
+
     prevsp = sp;
     prevConnState = connState;
 
@@ -239,6 +254,8 @@ void loop() {
     // Serial.print(":");
     // Serial.println(sp);
   }
+
+  if (spkr) spkr--;
 
   static char irCmd = '-';
   static unsigned long lastIrCmd;
@@ -263,7 +280,6 @@ void loop() {
     IrReceiver.resume();
   }
 
-  
   sensorValue = analogRead(PIN_VRX);
   
   int vrx, vry, vsw;
@@ -273,6 +289,7 @@ void loop() {
 
   vsw = digitalRead(PIN_VSW);
 
+  prevRev = rev;
 
   // The first time readIndex becomes zero
   if (!cenVx && !rVx.readIndex) {
@@ -292,6 +309,7 @@ void loop() {
       revTrans --;
       if (!revTrans) {
         rev = !rev;
+        spkr = SPKR_ITER;
       }
     } else {
       revTrans = REV_TRANS_CNT;
@@ -329,9 +347,15 @@ void loop() {
       cmd.th = cth;
       cmd.st = cst;
       if (!rf69_manager.sendtoWait((uint8_t *)&cmd, sizeof(cmd), RX_ADDR)) {
-        connState = FAIL;
+        if (txFailCount == 5) {
+          spkr = SPKR_ITER;
+          connState = FAIL;
+        }
+        txFailCount ++;
       } else {
+        if (connState == FAIL) spkr = SPKR_ITER;
         connState = TRX;
+        txFailCount = 0;
       }
 
       lastCmd = ms;
@@ -345,6 +369,14 @@ void loop() {
 
     display.setCursor(0, 30);
     sprintf(str1, "D:%c", irCmd);
+    display.print(str1);
+  
+    float measuredvbat = analogRead(PIN_VBAT);
+    measuredvbat *= 2;    // we divided by 2, so multiply back
+    measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
+    measuredvbat /= 1024; // convert to voltage
+    display.setCursor(45, 30);
+    sprintf(str1, "V:%.02f", measuredvbat);
     display.print(str1);
 
     display.display();
