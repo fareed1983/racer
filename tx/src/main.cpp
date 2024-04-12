@@ -9,17 +9,20 @@
 
 #include <IRremote.hpp>
 
-#define PIN_CLK 10
-#define PIN_LATCH 11
-#define PIN_DATA 12
+#define PIN_CLK A1
+#define PIN_LATCH A2
+#define PIN_DATA A3
 
-#define PIN_IR_RCV A4
+#define PIN_IR_RCV 10
 
 #define PIN_VBAT A7
 
-#define PIN_VRX A1
-#define PIN_VRY A2
-#define PIN_VSW A3
+#define PIN_VRX A5
+#define PIN_VRY A4
+#define PIN_VSW 12
+
+#define PIN_SWA 11
+#define PIN_SWB 10
 
 #define PIN_FRC A0
 
@@ -38,7 +41,7 @@
 #define RX_ADDR   1
 #define TX_ADDR   2
 
-#define SPKR_ITER 4
+#define SPKR_ITER 3
 
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
 RHReliableDatagram rf69_manager(rf69, TX_ADDR);
@@ -97,6 +100,16 @@ float addReading(reading_t *r, float newReading) {
 }
 
 void setup() {
+
+  pinMode(PIN_LATCH, OUTPUT);
+  pinMode(PIN_DATA, OUTPUT);
+  pinMode(PIN_CLK, OUTPUT);
+
+  digitalWrite(PIN_LATCH, LOW);
+  shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0b00000000);
+  shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0b00111110);
+  digitalWrite(PIN_LATCH, HIGH);
+
   Serial.begin(115200);
   Wire.begin();
 
@@ -112,16 +125,9 @@ void setup() {
   initReadings(&rVx);
   initReadings(&rVy);
 
-  pinMode(PIN_LATCH, OUTPUT);
-  pinMode(PIN_DATA, OUTPUT);
-  pinMode(PIN_CLK, OUTPUT);
-
-  digitalWrite(PIN_LATCH, LOW);
-  shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0b00000000);
-  shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, 0b00111110);
-  digitalWrite(PIN_LATCH, HIGH);
-
   pinMode(PIN_VSW, INPUT_PULLUP);
+  pinMode(PIN_SWA, INPUT_PULLUP);
+  pinMode(PIN_SWB, INPUT_PULLUP);
 
   strcpy(str1, "Devices:\n");
 
@@ -282,12 +288,14 @@ void loop() {
 
   sensorValue = analogRead(PIN_VRX);
   
-  int vrx, vry, vsw;
+  int vrx, vry, vsw, swa, swb;
 
   vrx = addReading(&rVx, analogRead(PIN_VRX));
   vry = addReading(&rVy, analogRead(PIN_VRY));
 
   vsw = digitalRead(PIN_VSW);
+  swa = digitalRead(PIN_SWA);
+  swb = digitalRead(PIN_SWB);
 
   prevRev = rev;
 
@@ -324,24 +332,21 @@ void loop() {
     cst = (cenVx - vrx) / 5.12;
     
     sprintf(str1, "S:%d", cst);
-    display.setCursor(0, 10);
+    display.setCursor(0, 25);
     display.print(str1);
 
     sprintf(str1, "y:%d", vry);
-    display.setCursor(45, 10);
+    display.setCursor(45, 25);
     display.print(str1);
 
     sprintf(str1, "s:%d", vsw);
-    display.setCursor(90, 10);
+    display.setCursor(90, 25);
     display.print(str1);
 
     sprintf(str1, "T:%d", cth);
-    display.setCursor(0, 20);
+    display.setCursor(0, 35);
     display.print(str1);
 
-    sprintf(str1, "R:%d", rev);
-    display.setCursor(45, 20);
-    display.print(str1);
 
     if (cmd.th != cth || cmd.st != cst || lastCmd + 100 < ms) {
       cmd.th = cth;
@@ -363,11 +368,11 @@ void loop() {
     
     if (connState == TRX && lastCmd + 100 < ms) connState = CONN;
 
-    display.setCursor(90, 20);
+    display.setCursor(90, 35);
     sprintf(str1, "A:%d", connState);
     display.print(str1);
 
-    display.setCursor(0, 30);
+    display.setCursor(0, 45);
     sprintf(str1, "D:%c", irCmd);
     display.print(str1);
   
@@ -375,9 +380,20 @@ void loop() {
     measuredvbat *= 2;    // we divided by 2, so multiply back
     measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
     measuredvbat /= 1024; // convert to voltage
-    display.setCursor(45, 30);
+    display.setCursor(45, 35);
     sprintf(str1, "V:%.02f", measuredvbat);
     display.print(str1);
+
+    sprintf(str1, "A:%d", swa);
+    display.setCursor(45, 45);
+    display.print(str1);
+
+    sprintf(str1, "B:%d", swb);
+    display.setCursor(90, 45);
+    display.print(str1);
+
+    display.setCursor(0, 0);
+    display.print("TX DBG");
 
     display.display();
   }

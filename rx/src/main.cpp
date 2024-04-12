@@ -44,8 +44,8 @@ MPU6050 mpu(Wire);
 #define POS_CEN 1500
 
 #define ESC_MID 1500
-#define ESC_MIN 1000
-#define ESC_MAX 2000
+#define ESC_MIN 1100
+#define ESC_MAX 1900
 
 #define NUM_LEDS 8
 
@@ -136,7 +136,7 @@ void setup() {
 
   Wire.begin();
   nDevices = 0;
-  for(address = 1; address < 127; address++ )
+  for(address = 1; address < 127; address++)
   {
     // The i2c_scanner uses the return value of
     // the Write.endTransmisstion to see if
