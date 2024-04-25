@@ -111,34 +111,7 @@ struct {
   bool raspToggle;
 } cmd;
 
-// State transition events
-#define SBC_TX_EVT_RUNNING      'r'
-#define TX_SBC_CMD_GET_PROGS    'g'
-#define TX_SBC_CMD_RUN_PROG     'P'
-#define SBC_TX_CMD_PROG_STARTED 'p'
-#define TX_SBC_TERM_PROG        'K'
-#define SBC_TX_PROG_EXIT        'x'
-#define SBC_TX_CMD_MASTER       'm'
-#define SBC_TX_CMD_YIELD        'y'
-#define TX_SBC_SHUTDOWN         'U'
-
-// General communication
-#define TX_SBC_GET_NET_STAT     'g'
-#define SBC_TX_NET_STAT         'n'
-#define TX_SBC_SET_SSID         'W'
-
-enum { 
-  OFF, 
-  BOOTING, 
-  READY,
-  PROG_STARTING, 
-  PROG_RUNNING_PASSIVE,
-  PROG_RUNNING_MASTER,
-  PROG_TERMINATING
-} sbcStates;
-
 char type;
-
 
 char str1[128] = {0}, str2[32];
 
