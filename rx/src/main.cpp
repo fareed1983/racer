@@ -137,7 +137,8 @@ void setup() {
 
   
   Serial.begin(115200);
-  Serial1.begin(9600);
+  Serial1.begin(115200);
+  Serial1.setTimeout(10);
 
   pwm.begin();
   pwm.setOscillatorFrequency(27000000);
@@ -392,6 +393,13 @@ void loop() {
       Serial.println("Did not get an ack");
     }
   }
+
+  if (Serial1.available()) {
+    Serial1.readBytes(buf, 2);
+    buf[0]='o';
+    buf[1]='k';
+    Serial1.write(buf, 2);
+  }
     
 
   // static unsigned long lastPrint = 0;
@@ -423,19 +431,24 @@ void loop() {
 bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
     memcpy(buf, startSeq, START_SEQ_LEN);
     *(buf + 3) =  cmd;
-    *(buf + 4) = '\n';
-    memcpy(buf + 4, payload, payloadLen);
-    Serial1.write(buf, START_SEQ_LEN + 2 + payloadLen);
+    memcpy(buf + 4, &payloadLen, 2);
+    memcpy(buf + 6, payload, payloadLen);
+    Serial1.write(buf, START_SEQ_LEN + 6 + payloadLen);
   
     uint8_t retries = 3;
     do {
-      delay(10);
-      if (Serial1.available() <= 2) {
-        Serial1.readBytes(buf, 2);
-        if (buf[0]=='o' && buf[1] == 'k') 
-          return true;
-        else 
-          return false;
+      delay(50);
+      if (Serial1.available() >= 2) {
+        Serial.println("available");
+        if (Serial1.readBytes(buf, 2) == 2) {
+          Serial.println("2 bytes read");
+          Serial.printf("%c%c\n", buf[0], buf[1]);
+          if (buf[0]=='o' && buf[1] == 'k') {
+            return true;
+          } else { 
+            return false;
+          }
+        }
       }
     } while(--retries);
 
