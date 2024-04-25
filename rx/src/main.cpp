@@ -10,10 +10,9 @@
 #include <MPU6050_light.h>
 #include <Adafruit_PWMServoDriver.h>
 #include <Adafruit_SSD1306.h>
-
-
 #include <math.h>
 
+#include "comms.h"
 
 MPU6050 mpu(Wire);
 
@@ -115,6 +114,8 @@ char type;
 
 char str1[128] = {0}, str2[32];
 
+uint8_t buf[1024];
+
 // struct {
 //   IRsend *sender;
 //   char pin;
@@ -128,7 +129,7 @@ Ultrasonic ultras[4]={
   Ultrasonic(PIN_UL_TRIG_3, PIN_UL_ECHO_3)
 };	
 
-void mpuInterrupt();
+bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen);
 
 void setup() {
   // irs[0] = { sender: new IRsend(), pin: PIN_IR_BK, cmd: 'b' };
@@ -387,10 +388,8 @@ void loop() {
     ultraIdx ++;
     if (ultraIdx == ULTRAS_TOT) ultraIdx = 0;
     nextSec = currTime + 1000;
-    Serial1.println("hello world");
-    delay(10);
-    while (Serial1.available()) {
-      Serial.write(Serial1.read());
+    if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
+      Serial.println("Did not get an ack");
     }
   }
     
@@ -421,8 +420,24 @@ void loop() {
 
 }
 
-void mpuInterrupt() {
-  Serial.println("Interrupted!");
-
+bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
+    memcpy(buf, startSeq, START_SEQ_LEN);
+    *(buf + 3) =  cmd;
+    *(buf + 4) = '\n';
+    memcpy(buf + 4, payload, payloadLen);
+    Serial1.write(buf, START_SEQ_LEN + 2 + payloadLen);
   
+    uint8_t retries = 3;
+    do {
+      delay(10);
+      if (Serial1.available() <= 2) {
+        Serial1.readBytes(buf, 2);
+        if (buf[0]=='o' && buf[1] == 'k') 
+          return true;
+        else 
+          return false;
+      }
+    } while(--retries);
+
+    return false;
 }

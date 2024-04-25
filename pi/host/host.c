@@ -21,15 +21,13 @@ struct {
     { "MQTT Ctrl Test",     "../progs/mqttCtrl/main.py",    true }
 };
 
-const char *startSeq = START_SEQ;
-
 void makeStringFromBuf(char *bufStart, int payloadLen, char *outString);
 int writeCmd(int fd, uint8_t cmd, uint8_t *payload, uint16_t payloadLen);
 void replyOk(int fd);
 
 int main(int argc, char **argv)
 {
-    printf("Pi host v0.1");
+    printf("Pi host v0.1\n\n");
 
     uint8_t totProgs = sizeof(progs) / sizeof(progs[0]);
 
@@ -83,7 +81,7 @@ int main(int argc, char **argv)
                 printf("Payload length mismatch!");
                 continue;
             }
-            
+
             switch (cmd) {
                 case TX_SBC_CMD_GET_PROGS:
                     printf("TX_SBC_CMD_GET_PROGS\n");
