@@ -4,48 +4,86 @@
 #include <SPI.h>
 #include <RH_RF69.h>
 #include <RHReliableDatagram.h>
-#include <Servo.h>
 #include <FastLED.h>
 #include <IRremote.hpp>
 #include <Ultrasonic.h>
 #include <MPU6050_light.h>
+#include <Adafruit_PWMServoDriver.h>
+#include <Adafruit_SSD1306.h>
+
+
+#include <math.h>
+
 
 MPU6050 mpu(Wire);
 
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define ADDR_OLED 0x3C
 
 // Radio stuff
 #define RF69_FREQ 433.0
 #define RFM69_CS    8
 #define RFM69_INT   3
 #define RFM69_RST   4
-#define LED        13
 
 #define RX_ADDR   1
 #define TX_ADDR   2
 
-#define PIN_LED_DATA A0
-#define PIN_SERVO A1
-#define PIN_ESC A2
+#define PIN_LED_DATA A4
 
 #define PIN_MPU_INT A3
 
-#define PIN_BATT_SENSE 9
+#define PIN_BATT_SENSE A5
 
-#define PIN_IR_RT 10
-#define PIN_IR_LT 11
-#define PIN_IR_FR 12
-#define PIN_IR_BK 13
+// #define PIN_IR_BK 22
+// #define PIN_IR_FR 6
 
-#define PIN_UL_TRIG_0 5
-#define PIN_UL_ECHO_0 6
+#define PIN_UL_TRIG_0 A0
+#define PIN_UL_ECHO_0 12
 
-#define POS_MIN 1250
-#define POS_MAX 1750
-#define POS_CEN 1500
+#define PIN_UL_TRIG_1 A1
+#define PIN_UL_ECHO_1 11
 
-#define ESC_MID 1500
+#define PIN_UL_TRIG_2 A2
+#define PIN_UL_ECHO_2 10
+
+#define PIN_UL_TRIG_3 A3
+#define PIN_UL_ECHO_3 9
+
+#define PIN_PWR_CTRL 5
+
+#define SER_MIN 1150
+#define SER_MID 1500
+#define SER_MAX 1850
+
 #define ESC_MIN 1100
+#define ESC_MID 1500
 #define ESC_MAX 1900
+
+#define UL_FR_IDX 0
+#define UL_LT_IDX 1
+#define UL_RT_IDX 2
+#define UL_BK_IDX 3
+
+#define ULTRAS_TOT 3
+
+// #define TICK_MIN 150
+// #define TICK_MAX 600
+
+//#define SERUS(pulseWidth) pwm.setPWM(SER_IDX, 0, map(pulseWidth, SER_MIN, SER_MAX, TICK_MIN, TICK_MAX));
+//#define ESCUS(pulseWidth) pwm.setPWM(ESC_IDX, 0, map(pulseWidth, ESC_MIN, ESC_MAX, TICK_MIN, TICK_MAX));
+
+#define SERUS(pulseWidth)  pwm.writeMicroseconds(SER_IDX, pulseWidth);
+#define ESCUS(pulseWidth)  pwm.writeMicroseconds(ESC_IDX, pulseWidth);
+
+#define SER_IDX 15
+#define ESC_IDX 14
 
 #define NUM_LEDS 8
 
@@ -55,36 +93,86 @@ RH_RF69 rf69(RFM69_CS, RFM69_INT);
 RHReliableDatagram rf69_manager(rf69, RX_ADDR);
 CRGB leds[NUM_LEDS];
 LiquidCrystal_I2C lcd(0x27, 16, 2);
+//Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-Servo savox, esc;
+bool raspOn = false;
 
+/*
+  0x1e  Magnometer HW-127
+  0x27  16x2 LCD
+  0x3c  OLED   
+  0x40  PWM
+  0x68  MPU
+  0x70  Temperature sensor (?)
+*/
 struct {
   int th;
-  int st;  
+  int st;
+  bool raspToggle;
 } cmd;
+
+// State transition events
+#define SBC_TX_EVT_RUNNING      'r'
+#define TX_SBC_CMD_GET_PROGS    'g'
+#define TX_SBC_CMD_RUN_PROG     'P'
+#define SBC_TX_CMD_PROG_STARTED 'p'
+#define TX_SBC_TERM_PROG        'K'
+#define SBC_TX_PROG_EXIT        'x'
+#define SBC_TX_CMD_MASTER       'm'
+#define SBC_TX_CMD_YIELD        'y'
+#define TX_SBC_SHUTDOWN         'U'
+
+// General communication
+#define TX_SBC_GET_NET_STAT     'g'
+#define SBC_TX_NET_STAT         'n'
+#define TX_SBC_SET_SSID         'W'
+
+enum { 
+  OFF, 
+  BOOTING, 
+  READY,
+  PROG_STARTING, 
+  PROG_RUNNING_PASSIVE,
+  PROG_RUNNING_MASTER,
+  PROG_TERMINATING
+} sbcStates;
+
+char type;
+
 
 char str1[128] = {0}, str2[32];
 
-struct {
-  IRsend *sender;
-  char pin;
-  char cmd;
-} irs[4];
+// struct {
+//   IRsend *sender;
+//   char pin;
+//   char cmd;
+// } irs[2];
 
-Ultrasonic ultraFront(PIN_UL_TRIG_0, PIN_UL_ECHO_0);	
+Ultrasonic ultras[4]={
+  Ultrasonic(PIN_UL_TRIG_0, PIN_UL_ECHO_0),
+  Ultrasonic(PIN_UL_TRIG_1, PIN_UL_ECHO_1),
+  Ultrasonic(PIN_UL_TRIG_2, PIN_UL_ECHO_2),
+  Ultrasonic(PIN_UL_TRIG_3, PIN_UL_ECHO_3)
+};	
 
 void mpuInterrupt();
 
 void setup() {
-  irs[0] = { sender: new IRsend(), pin: PIN_IR_RT, cmd: 'r' };
-  irs[1] = { sender: new IRsend(), pin: PIN_IR_LT, cmd: 'l' };
-  irs[2] = { sender: new IRsend(), pin: PIN_IR_FR, cmd: 'f' };
-  irs[3] = { sender: new IRsend(), pin: PIN_IR_BK, cmd: 'b' };
+  // irs[0] = { sender: new IRsend(), pin: PIN_IR_BK, cmd: 'b' };
+  // irs[1] = { sender: new IRsend(), pin: PIN_IR_FR, cmd: 'f' };
+
   
   Serial.begin(115200);
+  Serial1.begin(9600);
+
+  pwm.begin();
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(50);
   
-  pinMode(LED, OUTPUT);
   pinMode(RFM69_RST, OUTPUT);
+  pinMode(PIN_PWR_CTRL, OUTPUT);
+
+  pinMode(PIN_BATT_SENSE, INPUT_PULLDOWN);
   digitalWrite(RFM69_RST, LOW);
 
   lcd.init(); 
@@ -120,13 +208,11 @@ void setup() {
   FastLED.addLeds<NEOPIXEL, PIN_LED_DATA>(leds, NUM_LEDS);  // GRB ordering is assumed
   FastLED.setBrightness(2);
 
-  savox.attach(PIN_SERVO, POS_MIN, POS_MAX);
-  savox.writeMicroseconds(POS_CEN); 
+  ESCUS(ESC_MID);
+  SERUS(SER_MID);
 
-  esc.attach(PIN_ESC, POS_MIN, POS_MAX);
-  esc.writeMicroseconds(ESC_MID); 
 
-  for (int i = 0; i < 4; i++) irs[i].sender->begin(irs[i].pin);
+  //for (int i = 0; i < 2; i++) irs[i].sender->begin(irs[i].pin);
 
   byte error, address;
   int nDevices;
@@ -135,6 +221,8 @@ void setup() {
   Serial.println("Scanning...");
 
   Wire.begin();
+  Wire.setClock(1000000);
+
   nDevices = 0;
   for(address = 1; address < 127; address++)
   {
@@ -175,24 +263,57 @@ void setup() {
   lcd.setCursor(0, 1);
   lcd.print("No cmd!         ");
 
-  attachInterrupt(digitalPinToInterrupt(PIN_MPU_INT), mpuInterrupt, RISING); 
+  // if(!display.begin(SSD1306_SWITCHCAPVCC, ADDR_OLED)) { // Address 0x3D for 128x64
+  //   Serial.println(F("SSD1306 allocation failed"));
+  //   for(;;);
+  // } 
+
+  // display.clearDisplay();
+  // display.setTextColor(SSD1306_WHITE);
+  // display.setCursor(0, 0);
+  // display.cp437(true);
+  // display.setTextSize(2);
+  // display.println("Racer RX");
+  // display.setTextSize(1);
+  // display.println("v0.1");
+  // display.println(str1);
+  // display.display();
+  
+
+  //attachInterrupt(digitalPinToInterrupt(PIN_MPU_INT), mpuInterrupt, RISING); 
 
 }
 
 int iri = 0;
 
-int distFront = -10, prevSs = POS_CEN, prevEs = ESC_MID;
+int dists[4] = {0, 0, 0, 0}, prevSs = SER_MID, prevEs = ESC_MID, distFront, ultraIdx = 0;
 float prevBattV = 0, lastYaw = 0;
+unsigned long nextSec = 0;
+bool connected = false;
 
 void loop() {
 
   uint8_t len = sizeof(cmd);
   uint8_t from;
   bool upd = false;
-  
+  unsigned long currTime = millis(); 
 
   if (rf69_manager.recvfromAckTimeout((uint8_t *)&cmd, &len, 150, &from)) {
-    int ss = map(cmd.st, -100, 100, POS_MIN, POS_MAX);
+    int ss = map(cmd.st, -100, 100, SER_MIN, SER_MAX);
+    if (cmd.raspToggle) {
+      if (raspOn) {
+        digitalWrite(PIN_PWR_CTRL, false);
+        delay(1000);
+        digitalWrite(PIN_PWR_CTRL, true);
+      } else {
+        Wire.beginTransmission(0x03);
+        Wire.write("shutdown");
+        Wire.endTransmission(0x03);
+      }
+      raspOn = !raspOn;
+      delay(1000);
+    }
+
     if (cmd.th < 1) cmd.th /= 2;
     int es = map(cmd.th, -100, 100, ESC_MIN, ESC_MAX);
 
@@ -201,13 +322,13 @@ void loop() {
     }
 
     if (prevSs != ss) {
-      savox.writeMicroseconds(ss);
+      SERUS(ss);
       prevSs = ss;
       upd = true;
     }
 
     if (prevEs != es) {
-      esc.writeMicroseconds(es);
+      ESCUS(es);
       prevEs = es;
       upd = true;
     }
@@ -217,45 +338,54 @@ void loop() {
       sprintf(str1, "T:%03d  S:%03d", cmd.th, cmd.st);
       lcd.print(str1);
     }
-  } else {
 
-    if (prevEs != ESC_MID || prevSs != POS_CEN) {
+    connected = true;
+  } else if (connected) {
+
+    if (prevEs != ESC_MID || prevSs != SER_MID) {
       prevEs = ESC_MID;
-      prevSs = POS_CEN;
-      savox.writeMicroseconds(POS_CEN); 
-      esc.writeMicroseconds(ESC_MID);
+      prevSs = SER_MID;
+      SERUS(SER_MID); 
+      ESCUS(ESC_MID);
     } 
+
     lcd.setCursor(0, 1);
     lcd.print("No cmd!         ");
+    connected = false;
+    
   }
 
   int d;
-  d = ultraFront.read();
-  upd = false;
-
-  if (distFront != d) {
-    distFront = d;
-    if (distFront < DANGER_DIST && cmd.th > 0 && prevEs != ESC_MID) {
-        esc.writeMicroseconds(ESC_MID); 
-    }
-    upd = true;
+  
+  for (d = 0; d < ULTRAS_TOT; d++) {
+    dists[d] = ultras[d].read();
+    delay(10);
   }
 
-  irs[iri].sender->sendNEC(0x0102, irs[iri].cmd, 0);
-  iri++;
-  if (iri == 4) iri = 0;
+  upd = false;
+
+  if (distFront != dists[UL_FR_IDX]) {
+    distFront = dists[UL_FR_IDX];
+    if (distFront < DANGER_DIST && cmd.th > 0 && prevEs != ESC_MID) {
+        ESCUS(ESC_MID); 
+    }
+    //upd = true;
+  }
+
+  // irs[iri].sender->sendNEC(0x0102, irs[iri].cmd, 0);
+  // iri++;
+  // if (iri == 2) iri = 0;
 
   for (d = 0; d < NUM_LEDS; d++) {
     leds[d] = CRGB(random(0, 255), random(0, 255), random(0, 255));
   }
 
-  // Wire.beginTransmission(0x03);
-  // Wire.write("hello world");
-  // Wire.endTransmission(0x03);
+ 
 
   float v;
   d = analogRead(PIN_BATT_SENSE);
-  v = d * 7.54 / 405.0;
+  v = d * 7.52 / 410.0;
+  v = int(v * 10) / 10.0;
   if (v != prevBattV) {
     prevBattV = v;
     upd = true;
@@ -263,18 +393,34 @@ void loop() {
 
   mpu.update();
   v = mpu.getAngleZ();
+  v = int(v * 10) / 10.0;
 
   if (v != lastYaw) {
     lastYaw = v;
     upd = true;
   }
 
+  if (nextSec < currTime) {
+    upd = true;
+  }
+
   if (upd) {
     lcd.setCursor(0, 0);
-    sprintf(str1, "D%03d V%.01f Y%.01f    ", distFront, prevBattV, lastYaw);
+    sprintf(str1, "%d:%03d V%.01f Y%.01f    ", ultraIdx, dists[ultraIdx], prevBattV, lastYaw);
     lcd.print(str1);
   }
 
+  if (nextSec < currTime) {
+    ultraIdx ++;
+    if (ultraIdx == ULTRAS_TOT) ultraIdx = 0;
+    nextSec = currTime + 1000;
+    Serial1.println("hello world");
+    delay(10);
+    while (Serial1.available()) {
+      Serial.write(Serial1.read());
+    }
+  }
+    
 
   // static unsigned long lastPrint = 0;
   // if(millis() - lastPrint > 1000){ // print data every second

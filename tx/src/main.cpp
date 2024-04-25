@@ -67,7 +67,8 @@ typedef struct {
 
 struct {
   int th;
-  int st;  
+  int st;
+  bool raspToggle;
 } cmd;
 
 #define REV_TRANS_CNT 8 // How many iterations with switch pressed to change reverse state
@@ -186,7 +187,7 @@ void setup() {
   display.setCursor(0, 0);
   display.cp437(true);
   display.setTextSize(2);
-  display.println("Racer RX");
+  display.println("Racer TX");
   display.setTextSize(1);
   display.println("v0.1");
   display.println(str1);
@@ -293,9 +294,9 @@ void loop() {
   vrx = addReading(&rVx, analogRead(PIN_VRX));
   vry = addReading(&rVy, analogRead(PIN_VRY));
 
-  vsw = digitalRead(PIN_VSW);
-  swa = digitalRead(PIN_SWA);
-  swb = digitalRead(PIN_SWB);
+  vsw = !digitalRead(PIN_VSW);
+  swa = !digitalRead(PIN_SWA);
+  swb = !digitalRead(PIN_SWB);
 
   prevRev = rev;
 
@@ -313,7 +314,7 @@ void loop() {
   } else if (cenVx) {
     display.clearDisplay();
 
-    if (!vsw) {
+    if (vsw) {
       revTrans --;
       if (!revTrans) {
         rev = !rev;
@@ -348,9 +349,11 @@ void loop() {
     display.print(str1);
 
 
-    if (cmd.th != cth || cmd.st != cst || lastCmd + 100 < ms) {
+    if (cmd.th != cth || cmd.st != cst || lastCmd + 100 < ms || swb) {
       cmd.th = cth;
       cmd.st = cst;
+      cmd.raspToggle = swb;
+
       if (!rf69_manager.sendtoWait((uint8_t *)&cmd, sizeof(cmd), RX_ADDR)) {
         if (txFailCount == 5) {
           spkr = SPKR_ITER;
