@@ -22,8 +22,9 @@ struct {
 };
 
 void makeStringFromBuf(char *bufStart, int payloadLen, char *outString);
-int writeCmd(int fd, uint8_t cmd, uint8_t *payload, uint16_t payloadLen);
+bool writeCmd(int fd, uint8_t cmd, uint8_t *payload, uint16_t payloadLen);
 void replyOk(int fd);
+int getBytes(int fd, uint8_t *buf, size_t count);
 
 int main(int argc, char **argv)
 {
@@ -40,81 +41,131 @@ int main(int argc, char **argv)
     }
 
     int serialFd;
-    uint8_t buf[1024], payload[1024];
-
-    if ((serialFd = open(SERIAL_PORT, O_RDWR | O_NOCTTY)) == -1) {
+        if ((serialFd = open(SERIAL_PORT, O_RDWR | O_NOCTTY)) == -1) {
         perror("Failed to open serial port");
         return 1;
     }
 
-    uint8_t cmd[1024];
-    if (writeCmd(serialFd, SBC_TX_EVT_RUNNING , NULL, 0) == -1) {
-        perror("Error writing EVT_RUNNING");
+    if (!writeCmd(serialFd, SBC_TX_EVT_RUNNING , NULL, 0)) {
+        fprintf(stderr, "Error writing EVT_RUNNING\n");
         return 1;
     }
 
-    int bytesRead;
+    struct termios options;
+    tcgetattr(serialFd, &options);
+    cfsetispeed(&options, B115200);
+    cfsetospeed(&options, B115200);
+    options.c_cflag |= (CLOCAL | CREAD); // Enable receiver
+    options.c_cflag &= ~PARENB; // No parity
+    options.c_cflag &= ~CSTOPB; // 1 stop bit
+    options.c_cflag &= ~CSIZE; // Mask character size bits
+    options.c_cflag |= CS8; // 8 data bits
+    tcsetattr(serialFd, TCSANOW, &options);
+
+    printf("Opened serial port\n");
+    
+    uint8_t b, seqMatch = 0, payload[1024];
+    char cmd;
+    uint16_t payloadLen;
+    int readLen;
+
     while (1) {
-        if ((bytesRead = read(serialFd, buf, sizeof(buf))) == -1) {
-            perror("Error reading from searial port");
-        } else if (bytesRead == 0) {
-            usleep(10000); // 10  ms
+        seqMatch = 0;
+        printf("Reading...\n");
+        while(seqMatch != START_SEQ_LEN) {
+            if (getBytes(serialFd, &b, 1) == -1) {
+                perror("Error reading");
+                break;
+            }
+            if (b == startSeq[seqMatch]) seqMatch++; else seqMatch = 0;
+        }
+
+        if (getBytes(serialFd, &cmd, 1) == -1) {
+            perror("Error getting command");
             continue;
         }
-        
-        uint16_t idx = 0, payloadLen;
-        char cmd;
-        
-        do {
-            int seqFound = 0;
-            while (seqFound < START_SEQ_LEN && idx < bytesRead) {
-                if (buf[idx] != startSeq[seqFound]) {
-                    seqFound = 0;
-                }
-                idx++;
-            }
-            cmd = buf[idx++];
-            payloadLen = buf[idx++];
-            printf("Got cmd %c: plen: %d - ", cmd, payloadLen);
-            
-            if (bytesRead < 4 + payloadLen) {
-                printf("Payload length mismatch!");
-                continue;
-            }
 
-            switch (cmd) {
-                case TX_SBC_CMD_GET_PROGS:
-                    printf("TX_SBC_CMD_GET_PROGS\n");
-                    replyOk(serialFd);
-                    break;
-                case TX_SBC_CMD_RUN_PROG:
-                    makeStringFromBuf(buf + idx, payloadLen, payload);
-                    printf("TX_SBC_CMD_RUN_PROG: %s", payload);
-                    replyOk(serialFd);
-                    break;
-            }
-        } while (idx < bytesRead);
+        if (getBytes(serialFd, (uint8_t *)&payloadLen, 2) == -1) {
+            perror("Error getting payloadLen");
+            continue;
+        }
+
+        if (getBytes(serialFd, payload, payloadLen) == -1) {
+            perror("Error reading payload");
+            continue;
+        }
+
+        replyOk(serialFd);
+
+        switch(cmd) {
+            case TX_SBC_CMD_PING:
+                printf("Got ping\n");
+                if (!writeCmd(serialFd, SBC_TX_EVT_PONG, NULL, 0)) {
+                    printf("Did not get ack on pong\n");
+                } else {
+                    printf("Got ack on pong\n");
+                }
+                break;
+        }
         
     }
 
     close(serialFd);
 }
 
-void makeStringFromBuf(char *bufStart, int payloadLen, char *outString) {
+void makeStringFromBuf(char *bufStart, int payloadLen, char *outString) 
+{
     memcpy(outString, bufStart, payloadLen);
 }
 
-int writeCmd(int fd, uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
-    char out[1024];
-    memcpy(out, startSeq, START_SEQ_LEN);
-    *(out + 3) =  cmd;
-    memcpy(out + 4, payload, payloadLen);
-    return write(fd, out, START_SEQ_LEN + 1 + payloadLen);
+bool writeCmd(int fd, uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
+    printf("Writing cmd %c\n", cmd);
+    uint8_t buf[1024];
+    memcpy(buf, startSeq, START_SEQ_LEN);
+    *(buf + 3) =  cmd;
+    memcpy(buf + 4, &payloadLen, 2);
+    memcpy(buf + 6, payload, payloadLen);
+    if (write(fd, buf, START_SEQ_LEN + 6 + payloadLen) == -1) {
+        perror("Could not write");
+        return -1;
+    }
+
+    uint8_t retries = 3;
+    do {
+      usleep(1000);
+      if (getBytes(fd, buf, 2) == -1) {
+          perror("Error getting ack");
+          return false;
+      }
+      if (buf[0]=='o' && buf[1] == 'k') {
+          return true;
+      } else {
+          return false;
+      }
+    } while(--retries);
+
+    return false;
 }
 
-void replyOk(int fd) {
+void replyOk(int fd) 
+{
     if (write(fd, "ok", 2) == -1) {
         perror("Error replying ok");
         exit(1);
     }
 }
+
+int getBytes(int fd, uint8_t *buf, size_t count) 
+{
+    size_t readLen = 0, currReadLen;
+
+    while (count) {
+        if ((currReadLen = read(fd, buf + readLen, count)) == -1) return -1;
+        if (currReadLen == 0) usleep(10000);
+        count -= currReadLen;
+        readLen += currReadLen;
+    }
+
+    return readLen;
+}
+
