@@ -46,11 +46,6 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!writeCmd(serialFd, SBC_TX_EVT_RUNNING , NULL, 0)) {
-        fprintf(stderr, "Error writing EVT_RUNNING\n");
-        return 1;
-    }
-
     struct termios options;
     tcgetattr(serialFd, &options);
     cfsetispeed(&options, B115200);
@@ -62,8 +57,27 @@ int main(int argc, char **argv)
     options.c_cflag |= CS8; // 8 data bits
     tcsetattr(serialFd, TCSANOW, &options);
 
+    // Flush input buffer
+    if (tcflush(serialFd, TCIFLUSH) == -1) {
+        perror("Error flushing input buffer");
+        close(serialFd);
+        return 1;
+    }
+
+    // Flush output buffer
+    if (tcflush(serialFd, TCOFLUSH) == -1) {
+        perror("Error flushing output buffer");
+        close(serialFd);
+        return 1;
+    }
+
     printf("Opened serial port\n");
-    
+ 
+    if (!writeCmd(serialFd, SBC_TX_EVT_RUNNING , NULL, 0)) {
+        fprintf(stderr, "Error writing EVT_RUNNING\n");
+        return 1;
+    }
+   
     uint8_t b, seqMatch = 0, payload[1024];
     char cmd;
     uint16_t payloadLen;
@@ -95,15 +109,13 @@ int main(int argc, char **argv)
             continue;
         }
 
-        replyOk(serialFd);
-
         switch(cmd) {
             case TX_SBC_CMD_PING:
                 printf("Got ping\n");
-                if (!writeCmd(serialFd, SBC_TX_EVT_PONG, NULL, 0)) {
-                    printf("Did not get ack on pong\n");
+                if (writeCmd(serialFd, SBC_TX_EVT_PONG, NULL, 0)) {
+                    printf("Wrote pong\n");
                 } else {
-                    printf("Got ack on pong\n");
+                    printf("Could not write pong\n");
                 }
                 break;
         }
@@ -127,32 +139,10 @@ bool writeCmd(int fd, uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
     memcpy(buf + 6, payload, payloadLen);
     if (write(fd, buf, START_SEQ_LEN + 6 + payloadLen) == -1) {
         perror("Could not write");
-        return -1;
+        return false;
     }
 
-    uint8_t retries = 3;
-    do {
-      usleep(1000);
-      if (getBytes(fd, buf, 2) == -1) {
-          perror("Error getting ack");
-          return false;
-      }
-      if (buf[0]=='o' && buf[1] == 'k') {
-          return true;
-      } else {
-          return false;
-      }
-    } while(--retries);
-
-    return false;
-}
-
-void replyOk(int fd) 
-{
-    if (write(fd, "ok", 2) == -1) {
-        perror("Error replying ok");
-        exit(1);
-    }
+    return true;
 }
 
 int getBytes(int fd, uint8_t *buf, size_t count) 
@@ -161,7 +151,10 @@ int getBytes(int fd, uint8_t *buf, size_t count)
 
     while (count) {
         if ((currReadLen = read(fd, buf + readLen, count)) == -1) return -1;
-        if (currReadLen == 0) usleep(10000);
+        if (currReadLen == 0) {
+            usleep(10000);
+            continue;
+        }
         count -= currReadLen;
         readLen += currReadLen;
     }
