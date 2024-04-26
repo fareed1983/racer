@@ -114,7 +114,7 @@ char type;
 
 char str1[128] = {0}, str2[32];
 
-uint8_t buf[1024];
+char buf[1024];
 
 // struct {
 //   IRsend *sender;
@@ -390,15 +390,52 @@ void loop() {
     if (ultraIdx == ULTRAS_TOT) ultraIdx = 0;
     nextSec = currTime + 1000;
     if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
-      Serial.println("Did not get an ack");
+      Serial.println("Could not write");
     }
   }
 
-  if (Serial1.available()) {
-    Serial1.readBytes(buf, 2);
-    buf[0]='o';
-    buf[1]='k';
-    Serial1.write(buf, 2);
+  char b;
+  uint8_t seqMatch = 0;
+  uint16_t payloadLen = 0;
+  while (Serial1.available()) {
+    Serial.println("Reading...");
+    while (seqMatch != START_SEQ_LEN && Serial1.available()) {
+      if (Serial1.readBytes(&b, 1) == 0) {
+        Serial.println("Error getting start seq");
+        continue;
+      }
+      printf("Got %c\n", b);
+      if (startSeq[seqMatch] == b) seqMatch ++; else seqMatch = 0;
+    }
+
+    if (!Serial1.available()) break;
+
+    if (!Serial1.readBytes(&b, 1)) {
+      Serial.println("Error getting command");
+      break;
+    }
+
+    if (!Serial1.readBytes((char *)&payloadLen, 2)) {
+      Serial.println("Error getting payloadLen");
+      break;
+    }
+
+    if (Serial1.readBytes(buf, payloadLen) != payloadLen) {
+      Serial.println("Error getting payload");
+      break;
+    }
+
+    Serial.printf("Got cmd %d payloadLen:%d\n", b, payloadLen);
+
+    switch (b) {
+      case SBC_TX_EVT_RUNNING:
+        Serial.println("Got EVT_RUNNING");
+        break;
+      case SBC_TX_EVT_PONG:
+        Serial.println("Got PONG!");
+        break;
+    }
+
   }
     
 
@@ -433,24 +470,8 @@ bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
     *(buf + 3) =  cmd;
     memcpy(buf + 4, &payloadLen, 2);
     memcpy(buf + 6, payload, payloadLen);
-    Serial1.write(buf, START_SEQ_LEN + 6 + payloadLen);
-  
-    uint8_t retries = 3;
-    do {
-      delay(50);
-      if (Serial1.available() >= 2) {
-        Serial.println("available");
-        if (Serial1.readBytes(buf, 2) == 2) {
-          Serial.println("2 bytes read");
-          Serial.printf("%c%c\n", buf[0], buf[1]);
-          if (buf[0]=='o' && buf[1] == 'k') {
-            return true;
-          } else { 
-            return false;
-          }
-        }
-      }
-    } while(--retries);
+    size_t bytes = START_SEQ_LEN + 6 + payloadLen;
+    if (Serial1.write(buf, bytes) != bytes) return false; 
 
-    return false;
+    return true;
 }
