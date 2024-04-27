@@ -10,16 +10,10 @@
 #include <MPU6050_light.h>
 #include <Adafruit_PWMServoDriver.h>
 #include <Adafruit_SSD1306.h>
-#include <math.h>
-
-#include "comms.h"
-
-MPU6050 mpu(Wire);
-
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
-
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+#include <math.h>
+#include "comms.h"
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -72,30 +66,6 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 #define ULTRAS_TOT 3
 
-// #define TICK_MIN 150
-// #define TICK_MAX 600
-
-//#define SERUS(pulseWidth) pwm.setPWM(SER_IDX, 0, map(pulseWidth, SER_MIN, SER_MAX, TICK_MIN, TICK_MAX));
-//#define ESCUS(pulseWidth) pwm.setPWM(ESC_IDX, 0, map(pulseWidth, ESC_MIN, ESC_MAX, TICK_MIN, TICK_MAX));
-
-#define SERUS(pulseWidth)  pwm.writeMicroseconds(SER_IDX, pulseWidth);
-#define ESCUS(pulseWidth)  pwm.writeMicroseconds(ESC_IDX, pulseWidth);
-
-#define SER_IDX 15
-#define ESC_IDX 14
-
-#define NUM_LEDS 8
-
-#define DANGER_DIST 50
-
-RH_RF69 rf69(RFM69_CS, RFM69_INT);
-RHReliableDatagram rf69_manager(rf69, RX_ADDR);
-CRGB leds[NUM_LEDS];
-LiquidCrystal_I2C lcd(0x27, 16, 2);
-//Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-
-bool raspOn = false;
-
 /*
   0x1e  Magnometer HW-127
   0x27  16x2 LCD
@@ -104,17 +74,47 @@ bool raspOn = false;
   0x68  MPU
   0x70  Temperature sensor (?)
 */
+
+#define SER_IDX 15
+#define ESC_IDX 14
+
+#define SERUS(pulseWidth)  pwm.writeMicroseconds(SER_IDX, pulseWidth);
+#define ESCUS(pulseWidth)  pwm.writeMicroseconds(ESC_IDX, pulseWidth);
+
+#define NUM_LEDS 8
+
+#define DANGER_DIST 50
+
+#define SBC_ST_OFF              'o'
+#define SBC_ST_BOOTING          'b'
+#define SBC_ST_READY            'r'
+#define SBC_ST_POWERING_OFF     'w'
+#define SBC_ST_PROG_STARTING    's'
+#define SBC_ST_PROG_PASSIVE     'p'
+#define SBC_ST_PROG_MASTER      'm'
+#define SEC_ST_PROG_TERM        'k'
+
+RH_RF69 rf69(RFM69_CS, RFM69_INT);
+RHReliableDatagram rf69_manager(rf69, RX_ADDR);
+CRGB leds[NUM_LEDS];
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+MPU6050 mpu(Wire);
+//Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+int iri = 0;
+int dists[4] = {0, 0, 0, 0}, prevSs = SER_MID, prevEs = ESC_MID, distFront, ultraIdx = 0;
+float prevBattV = 0, lastYaw = 0;
+unsigned long nextSec = 0, poweroffTransition = 0;
+bool connected = false;
+char sbcState = SBC_ST_OFF;
+char str1[128] = {0}, str2[32], buf[1024];
+
 struct {
   int th;
   int st;
   bool raspToggle;
 } cmd;
-
-char type;
-
-char str1[128] = {0}, str2[32];
-
-char buf[1024];
 
 // struct {
 //   IRsend *sender;
@@ -186,7 +186,6 @@ void setup() {
   ESCUS(ESC_MID);
   SERUS(SER_MID);
 
-
   //for (int i = 0; i < 2; i++) irs[i].sender->begin(irs[i].pin);
 
   byte error, address;
@@ -254,39 +253,45 @@ void setup() {
   // display.println(str1);
   // display.display();
   
-
-  //attachInterrupt(digitalPinToInterrupt(PIN_MPU_INT), mpuInterrupt, RISING); 
-
 }
-
-int iri = 0;
-
-int dists[4] = {0, 0, 0, 0}, prevSs = SER_MID, prevEs = ESC_MID, distFront, ultraIdx = 0;
-float prevBattV = 0, lastYaw = 0;
-unsigned long nextSec = 0;
-bool connected = false;
 
 void loop() {
 
   uint8_t len = sizeof(cmd);
   uint8_t from;
-  bool upd = false;
+  bool upd0 = false, upd1 = false;
   unsigned long currTime = millis(); 
+  char prevSbcState = sbcState;
+
+  // TODO replace this with photoresistor input
+  if (sbcState == SBC_ST_POWERING_OFF && poweroffTransition < currTime) {
+    sbcState = SBC_ST_OFF;
+    digitalWrite(PIN_PWR_CTRL, false);
+    poweroffTransition = 0;
+  }
 
   if (rf69_manager.recvfromAckTimeout((uint8_t *)&cmd, &len, 150, &from)) {
     int ss = map(cmd.st, -100, 100, SER_MIN, SER_MAX);
     if (cmd.raspToggle) {
-      if (raspOn) {
-        digitalWrite(PIN_PWR_CTRL, false);
-        delay(1000);
-        digitalWrite(PIN_PWR_CTRL, true);
-      } else {
-        Wire.beginTransmission(0x03);
-        Wire.write("shutdown");
-        Wire.endTransmission(0x03);
+      switch (sbcState) {
+        case SBC_ST_OFF:
+          digitalWrite(PIN_PWR_CTRL, false);
+          delay(1000);
+          digitalWrite(PIN_PWR_CTRL, true);
+          sbcState = SBC_ST_BOOTING;
+          break;
+        
+        case SBC_ST_BOOTING:        
+        case SBC_ST_POWERING_OFF:
+          Serial.println("Not doing anything as transitory state");
+          break;
+
+        default:
+          writeCmd(TX_SBC_CMD_SHUTDOWN, NULL, 0);
+          sbcState = SBC_ST_POWERING_OFF;
+          poweroffTransition = currTime + 20000;
+          break;
       }
-      raspOn = !raspOn;
-      delay(1000);
     }
 
     if (cmd.th < 1) cmd.th /= 2;
@@ -299,23 +304,17 @@ void loop() {
     if (prevSs != ss) {
       SERUS(ss);
       prevSs = ss;
-      upd = true;
+      upd1 = true;
     }
 
     if (prevEs != es) {
       ESCUS(es);
       prevEs = es;
-      upd = true;
+      upd1 = true;
     }
     
-    if (upd) {
-      lcd.setCursor(0, 1);
-      sprintf(str1, "T:%03d  S:%03d", cmd.th, cmd.st);
-      lcd.print(str1);
-    }
-
     connected = true;
-  } else if (connected) {
+  } else if (connected) {   // no command received
 
     if (prevEs != ESC_MID || prevSs != SER_MID) {
       prevEs = ESC_MID;
@@ -324,10 +323,8 @@ void loop() {
       ESCUS(ESC_MID);
     } 
 
-    lcd.setCursor(0, 1);
-    lcd.print("No cmd!         ");
+    upd1 = true;
     connected = false;
-    
   }
 
   int d;
@@ -336,8 +333,6 @@ void loop() {
     dists[d] = ultras[d].read();
     delay(10);
   }
-
-  upd = false;
 
   if (distFront != dists[UL_FR_IDX]) {
     distFront = dists[UL_FR_IDX];
@@ -355,15 +350,13 @@ void loop() {
     leds[d] = CRGB(random(0, 255), random(0, 255), random(0, 255));
   }
 
- 
-
   float v;
   d = analogRead(PIN_BATT_SENSE);
   v = d * 7.52 / 410.0;
   v = int(v * 10) / 10.0;
   if (v != prevBattV) {
     prevBattV = v;
-    upd = true;
+    upd0 = true;
   }
 
   mpu.update();
@@ -372,33 +365,18 @@ void loop() {
 
   if (v != lastYaw) {
     lastYaw = v;
-    upd = true;
+    upd0 = true;
   }
 
   if (nextSec < currTime) {
-    upd = true;
+    upd0 = true;
   }
 
-  if (upd) {
-    lcd.setCursor(0, 0);
-    sprintf(str1, "%d:%03d V%.01f Y%.01f    ", ultraIdx, dists[ultraIdx], prevBattV, lastYaw);
-    lcd.print(str1);
-  }
-
-  if (nextSec < currTime) {
-    ultraIdx ++;
-    if (ultraIdx == ULTRAS_TOT) ultraIdx = 0;
-    nextSec = currTime + 1000;
-    if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
-      Serial.println("Could not write");
-    }
-  }
 
   char b;
   uint8_t seqMatch = 0;
   uint16_t payloadLen = 0;
   while (Serial1.available()) {
-    Serial.println("Reading...");
     while (seqMatch != START_SEQ_LEN && Serial1.available()) {
       if (Serial1.readBytes(&b, 1) == 0) {
         Serial.println("Error getting start seq");
@@ -430,14 +408,43 @@ void loop() {
     switch (b) {
       case SBC_TX_EVT_RUNNING:
         Serial.println("Got EVT_RUNNING");
+        sbcState = SBC_ST_READY;
         break;
+
       case SBC_TX_EVT_PONG:
         Serial.println("Got PONG!");
         break;
     }
-
   }
-    
+
+  if (prevSbcState != sbcState) upd1 = true;
+
+  if (upd0) {
+    lcd.setCursor(0, 0);
+    sprintf(str1, "%d:%03d V%.01f Y%.01f  ", ultraIdx, dists[ultraIdx], prevBattV, lastYaw);
+    lcd.print(str1);
+  }
+
+  if (upd1) {
+    lcd.setCursor(0, 1);
+    if (connected) {
+      sprintf(str1, " %c T:%03d S:%03d", sbcState, cmd.th, cmd.st);
+    } else {
+        sprintf(str1, "%c DISCO", sbcState);
+    }
+    lcd.print(str1);
+  }
+
+  if (nextSec < currTime) {
+    ultraIdx ++;
+    if (ultraIdx == ULTRAS_TOT) ultraIdx = 0;
+    nextSec = currTime + 1000;
+    if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
+      Serial.println("Could not write");
+    }
+  }
+
+
 
   // static unsigned long lastPrint = 0;
   // if(millis() - lastPrint > 1000){ // print data every second

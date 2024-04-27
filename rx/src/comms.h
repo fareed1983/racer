@@ -9,10 +9,10 @@
 #define TX_SBC_CMD_RUN_PROG     'P'
 #define SBC_TX_EVT_PROG_STARTED 'p'
 #define TX_SBC_TERM_PROG        'K'
-#define SBC_TX_EVT_PROG_EXIT     'x'
+#define SBC_TX_EVT_PROG_EXIT    'x'
 #define SBC_TX_CMD_MASTER       'm'
 #define SBC_TX_CMD_YIELD        'y'
-#define TX_SBC_SHUTDOWN         'U'
+#define TX_SBC_CMD_SHUTDOWN     'U'
 
 // General communication
 #define TX_SBC_GET_NET_STAT     'g'
