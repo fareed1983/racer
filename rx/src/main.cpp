@@ -108,7 +108,7 @@ float prevBattV = 0, lastYaw = 0;
 unsigned long nextSec = 0, poweroffTransition = 0;
 bool connected = false;
 char sbcState = SBC_ST_OFF;
-char str1[128] = {0}, str2[32], buf[1024];
+char str1[128] = {0}, buf[128];
 
 struct {
   int th;
@@ -190,7 +190,6 @@ void setup() {
 
   byte error, address;
   int nDevices;
-  Serial.begin(115200);
 
   Serial.println("Scanning...");
 
@@ -373,7 +372,7 @@ void loop() {
   }
 
 
-  char b;
+  char b = 0;
   uint8_t seqMatch = 0;
   uint16_t payloadLen = 0;
   while (Serial1.available()) {
@@ -382,11 +381,13 @@ void loop() {
         Serial.println("Error getting start seq");
         continue;
       }
-      printf("Got %c\n", b);
       if (startSeq[seqMatch] == b) seqMatch ++; else seqMatch = 0;
     }
 
-    if (!Serial1.available()) break;
+    if (seqMatch != START_SEQ_LEN) {
+      Serial1.println("Seq not matched");
+      break;
+    }
 
     if (!Serial1.readBytes(&b, 1)) {
       Serial.println("Error getting command");
@@ -398,12 +399,12 @@ void loop() {
       break;
     }
 
+    Serial.printf("Got Cmd: %c, payloadLen: %d\n", b, payloadLen);
+
     if (Serial1.readBytes(buf, payloadLen) != payloadLen) {
       Serial.println("Error getting payload");
       break;
     }
-
-    Serial.printf("Got cmd %d payloadLen:%d\n", b, payloadLen);
 
     switch (b) {
       case SBC_TX_EVT_RUNNING:
@@ -428,9 +429,9 @@ void loop() {
   if (upd1) {
     lcd.setCursor(0, 1);
     if (connected) {
-      sprintf(str1, " %c T:%03d S:%03d", sbcState, cmd.th, cmd.st);
+      sprintf(str1, "%c T:%03d S:%03d", sbcState, cmd.th, cmd.st);
     } else {
-        sprintf(str1, "%c DISCO", sbcState);
+        sprintf(str1, "%c DISCO         ", sbcState);
     }
     lcd.print(str1);
   }
@@ -474,10 +475,10 @@ void loop() {
 
 bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
     memcpy(buf, startSeq, START_SEQ_LEN);
-    *(buf + 3) =  cmd;
-    memcpy(buf + 4, &payloadLen, 2);
-    memcpy(buf + 6, payload, payloadLen);
-    size_t bytes = START_SEQ_LEN + 6 + payloadLen;
+    *(buf + START_SEQ_LEN) =  cmd;
+    memcpy(buf + START_SEQ_LEN + 1, &payloadLen, 2);
+    memcpy(buf + START_SEQ_LEN + 3, payload, payloadLen);
+    size_t bytes = START_SEQ_LEN + 3 + payloadLen;
     if (Serial1.write(buf, bytes) != bytes) return false; 
 
     return true;
