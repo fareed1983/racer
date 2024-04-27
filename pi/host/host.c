@@ -21,7 +21,6 @@ struct {
     { "MQTT Ctrl Test",     "../progs/mqttCtrl/main.py",    true }
 };
 
-void makeStringFromBuf(char *bufStart, int payloadLen, char *outString);
 bool writeCmd(int fd, uint8_t cmd, uint8_t *payload, uint16_t payloadLen);
 void replyOk(int fd);
 int getBytes(int fd, uint8_t *buf, size_t count);
@@ -50,11 +49,16 @@ int main(int argc, char **argv)
     tcgetattr(serialFd, &options);
     cfsetispeed(&options, B115200);
     cfsetospeed(&options, B115200);
-    options.c_cflag |= (CLOCAL | CREAD); // Enable receiver
-    options.c_cflag &= ~PARENB; // No parity
-    options.c_cflag &= ~CSTOPB; // 1 stop bit
     options.c_cflag &= ~CSIZE; // Mask character size bits
     options.c_cflag |= CS8; // 8 data bits
+    options.c_cflag &= ~PARENB; // No parity
+    options.c_cflag &= ~CSTOPB; // 1 stop bit
+    options.c_cflag &= ~CRTSCTS; // Disable hardware flow control
+    options.c_lflag &= ~ECHO; // Disable echo
+    options.c_lflag &= ~ICANON; // Disable canonical input mode (line oriented)
+  //  options.c_cflag |= (CLOCAL | CREAD); // Enable receiver
+    options.c_cc[VTIME] = 10;
+    options.c_cc[VMIN] = 0;
     tcsetattr(serialFd, TCSANOW, &options);
 
     // Flush input buffer
@@ -111,12 +115,18 @@ int main(int argc, char **argv)
 
         switch(cmd) {
             case TX_SBC_CMD_PING:
-                printf("Got ping\n");
+                fprintf(stderr, "Got ping\n");
                 if (writeCmd(serialFd, SBC_TX_EVT_PONG, NULL, 0)) {
                     printf("Wrote pong\n");
                 } else {
                     printf("Could not write pong\n");
                 }
+		
+                break;
+
+            case TX_SBC_CMD_SHUTDOWN:
+                printf("Got shutdown\n");
+                system("sudo poweroff");
                 break;
         }
         
@@ -125,19 +135,13 @@ int main(int argc, char **argv)
     close(serialFd);
 }
 
-void makeStringFromBuf(char *bufStart, int payloadLen, char *outString) 
-{
-    memcpy(outString, bufStart, payloadLen);
-}
-
 bool writeCmd(int fd, uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
-    printf("Writing cmd %c\n", cmd);
     uint8_t buf[1024];
     memcpy(buf, startSeq, START_SEQ_LEN);
-    *(buf + 3) =  cmd;
-    memcpy(buf + 4, &payloadLen, 2);
-    memcpy(buf + 6, payload, payloadLen);
-    if (write(fd, buf, START_SEQ_LEN + 6 + payloadLen) == -1) {
+    *(buf + START_SEQ_LEN) =  cmd;
+    memcpy(buf + START_SEQ_LEN + 1, &payloadLen, 2);
+    memcpy(buf + START_SEQ_LEN + 3, payload, payloadLen);
+    if (write(fd, buf, START_SEQ_LEN + 3 + payloadLen) == -1) {
         perror("Could not write");
         return false;
     }
@@ -153,7 +157,7 @@ int getBytes(int fd, uint8_t *buf, size_t count)
         if ((currReadLen = read(fd, buf + readLen, count)) == -1) return -1;
         if (currReadLen == 0) {
             usleep(10000);
-            continue;
+	    continue;
         }
         count -= currReadLen;
         readLen += currReadLen;
