@@ -15,6 +15,7 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_HMC5883_U.h>
 #include <math.h>
+
 #include "comms.h"
 
 #define SCREEN_WIDTH 128
@@ -63,6 +64,7 @@
 
 #define ULTRAS_TOT 3
 
+
 /*
   0x1e  Magnometer HW-127
   0x27  16x2 LCD
@@ -107,6 +109,7 @@ unsigned long nextSec = 0, poweroffTransition = 0;
 bool connected = false;
 char sbcState = SBC_ST_OFF;
 char str1[128] = {0}, buf[128];
+senData_t sd;
 
 struct {
   int th;
@@ -379,7 +382,7 @@ void loop() {
   v = int(v * 10) / 10.0;
 
   if (sbcState == SBC_ST_PROG_PASSIVE || sbcState == SBC_ST_PROG_MASTER) {
-    senData_t sd = {
+    sd = {
       throttle: connected ? cmd.th : 0,
       steering: connected ? cmd.st : 0,
       dists: { dists[0], dists[1], dists[2] },
@@ -391,11 +394,11 @@ void loop() {
       gyroZ: mpu.getGyroZ()
     };
 
-    Serial.printf("\tthrottle: %d\n", sd.throttle);
-    Serial.printf("\tsteering: %d\n", sd.steering);
-    Serial.printf("\tdists: %d %d %d\n", sd.dists[0], sd.dists[1], sd.dists[2]);
-    Serial.printf("\taccX: %.2f, accY: %.2f, accZ: %.2f\n", sd.accX, sd.accY, sd.accZ);
-    Serial.printf("\tgyroX: %.2f, gyroY: %.2f, gryoZ: %.2f\n", sd.gyroX, sd.gyroY, sd.gyroZ);
+    // Serial.printf("\tthrottle: %d\n", sd.throttle);
+    // Serial.printf("\tsteering: %d\n", sd.steering);
+    // Serial.printf("\tdists: %d %d %d\n", sd.dists[0], sd.dists[1], sd.dists[2]);
+    // Serial.printf("\taccX: %.2f, accY: %.2f, accZ: %.2f\n", sd.accX, sd.accY, sd.accZ);
+    // Serial.printf("\tgyroX: %.2f, gyroY: %.2f, gryoZ: %.2f\n", sd.gyroX, sd.gyroY, sd.gyroZ);
 
     if (!writeCmd(TX_SBC_EVT_SEN_DATA, (uint8_t *)&sd, sizeof(sd))) {
       Serial.println("Error sending sensor data");
@@ -411,24 +414,31 @@ void loop() {
     upd0 = true;
   }
 
-  char b = 0;
   uint8_t seqMatch = 0;
   uint16_t payloadLen = 0;
+  char b;
   while (Serial1.available()) {
     while (seqMatch != START_SEQ_LEN && Serial1.available()) {
       if (Serial1.readBytes(&b, 1) == 0) {
         Serial.println("Error getting start seq");
         continue;
       }
-      if (startSeq[seqMatch] == b) seqMatch ++; else seqMatch = 0;
+      if (b == startSeq[seqMatch]) seqMatch++;
+      else if (b == startSeq[0]) seqMatch = 1; 
+      else if (b == startSeq[1]) seqMatch = 2;
+      else if (b == startSeq[2]) seqMatch = 3;
+      else {
+        seqMatch = 0;
+        Serial.printf("Seq mis %c\n", b);
+      }
     }
 
     if (seqMatch != START_SEQ_LEN) {
-      Serial1.println("Seq not matched");
+      Serial.println("Seq not matched");
       break;
     }
 
-    if (!Serial1.readBytes(&b, 1)) {
+    if (!Serial1.readBytes(buf, 1)) {
       Serial.println("Error getting command");
       break;
     }
@@ -438,14 +448,25 @@ void loop() {
       break;
     }
 
-    Serial.printf("Got Cmd: %c, payloadLen: %d\n", b, payloadLen);
+    uint8_t crc;
+    if (!Serial.readBytes((char *)&crc, 1)) {
+      Serial.println("Error getting CRC");
+      break;
+    }
 
-    if (Serial1.readBytes(buf, payloadLen) != payloadLen) {
+    if (calcCrc8((uint8_t *)buf, payloadLen + 1) != crc) {
+      Serial.println("CRC mismatch");
+      break;
+    }
+
+    Serial.printf("Got Cmd: %c, payloadLen: %d\n", *buf, payloadLen);
+
+    if (Serial1.readBytes(buf + 1, payloadLen) != payloadLen) {
       Serial.println("Error getting payload");
       break;
     }
 
-    switch (b) {
+    switch (*buf) {
       case SBC_TX_EVT_RUNNING:
         Serial.println("Got EVT_RUNNING");
         sbcState = SBC_ST_READY;
@@ -556,10 +577,13 @@ bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
     *(buf + START_SEQ_LEN) =  cmd;
     memcpy(buf + START_SEQ_LEN + 1, &payloadLen, 2);
     memcpy(buf + START_SEQ_LEN + 3, payload, payloadLen);
-    size_t bytes = START_SEQ_LEN + 3 + payloadLen;
+    *(buf + START_SEQ_LEN + 3 + payloadLen) = calcCrc8((uint8_t *)(buf + START_SEQ_LEN), 3 + payloadLen);
+    size_t bytes = START_SEQ_LEN + 4 + payloadLen;
     if (Serial1.write(buf, bytes) != bytes) return false; 
 
     Serial.printf("Wrote %c payloadLen:%d\n", cmd, payloadLen);
 
     return true;
 }
+
+

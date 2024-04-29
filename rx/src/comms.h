@@ -33,7 +33,7 @@ typedef enum {
 #define START_SEQ_LEN 4
 #define START_SEQ "<!~|"
 
-const char *startSeq = START_SEQ;
+extern const char *startSeq;
 
 
 #define UL_FR_IDX 0
@@ -49,5 +49,7 @@ typedef struct {
   float gyroX, gyroY, gyroZ;
 } senData_t;
 
+#define CRC8_POLY 0x07
+uint8_t calcCrc8(uint8_t *data, size_t len);
 
 #endif
