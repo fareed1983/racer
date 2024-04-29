@@ -391,6 +391,12 @@ void loop() {
       gyroZ: mpu.getGyroZ()
     };
 
+    Serial.printf("\tthrottle: %d\n", sd.throttle);
+    Serial.printf("\tsteering: %d\n", sd.steering);
+    Serial.printf("\tdists: %d %d %d\n", sd.dists[0], sd.dists[1], sd.dists[2]);
+    Serial.printf("\taccX: %.2f, accY: %.2f, accZ: %.2f\n", sd.accX, sd.accY, sd.accZ);
+    Serial.printf("\tgyroX: %.2f, gyroY: %.2f, gryoZ: %.2f\n", sd.gyroX, sd.gyroY, sd.gyroZ);
+
     if (!writeCmd(TX_SBC_EVT_SEN_DATA, (uint8_t *)&sd, sizeof(sd))) {
       Serial.println("Error sending sensor data");
     }
@@ -552,6 +558,8 @@ bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
     memcpy(buf + START_SEQ_LEN + 3, payload, payloadLen);
     size_t bytes = START_SEQ_LEN + 3 + payloadLen;
     if (Serial1.write(buf, bytes) != bytes) return false; 
+
+    Serial.printf("Wrote %c payloadLen:%d\n", cmd, payloadLen);
 
     return true;
 }

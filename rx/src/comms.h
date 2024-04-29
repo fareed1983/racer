@@ -30,8 +30,8 @@ typedef enum {
   PROG_TERMINATING
 } sbcStates_t;
 
-#define START_SEQ_LEN 3
-#define START_SEQ "<!~"
+#define START_SEQ_LEN 4
+#define START_SEQ "<!~|"
 
 const char *startSeq = START_SEQ;
 
@@ -45,9 +45,7 @@ typedef struct {
   int8_t throttle;
   int8_t steering;
   uint16_t dists[3];
-  uint8_t padding1[2];
   float accX, accY, accZ;
-  uint8_t padding2[4]; 
   float gyroX, gyroY, gyroZ;
 } senData_t;
 
