@@ -45,7 +45,9 @@ typedef struct {
   int8_t throttle;
   int8_t steering;
   uint16_t dists[3];
+  uint8_t padding1[2];
   float accX, accY, accZ;
+  uint8_t padding2[4]; 
   float gyroX, gyroY, gyroZ;
 } senData_t;
 
