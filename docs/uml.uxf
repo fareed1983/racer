@@ -4,8 +4,8 @@
   <element>
     <id>UMLState</id>
     <coordinates>
-      <x>77</x>
-      <y>350</y>
+      <x>119</x>
+      <y>133</y>
       <w>63</w>
       <h>28</h>
     </coordinates>
@@ -15,8 +15,8 @@
   <element>
     <id>UMLSpecialState</id>
     <coordinates>
-      <x>35</x>
-      <y>357</y>
+      <x>77</x>
+      <y>140</y>
       <w>14</w>
       <h>14</h>
     </coordinates>
@@ -26,8 +26,8 @@
   <element>
     <id>UMLState</id>
     <coordinates>
-      <x>217</x>
-      <y>350</y>
+      <x>259</x>
+      <y>133</y>
       <w>63</w>
       <h>28</h>
     </coordinates>
@@ -37,8 +37,8 @@
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>273</x>
-      <y>350</y>
+      <x>315</x>
+      <y>133</y>
       <w>77</w>
       <h>35</h>
     </coordinates>
@@ -50,8 +50,8 @@ running</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>133</x>
-      <y>343</y>
+      <x>175</x>
+      <y>126</y>
       <w>98</w>
       <h>28</h>
     </coordinates>
@@ -62,8 +62,8 @@ rc:startSbc</panel_attributes>
   <element>
     <id>UMLState</id>
     <coordinates>
-      <x>336</x>
-      <y>350</y>
+      <x>378</x>
+      <y>133</y>
       <w>70</w>
       <h>28</h>
     </coordinates>
@@ -73,8 +73,8 @@ rc:startSbc</panel_attributes>
   <element>
     <id>UMLState</id>
     <coordinates>
-      <x>280</x>
-      <y>455</y>
+      <x>322</x>
+      <y>238</y>
       <w>63</w>
       <h>28</h>
     </coordinates>
@@ -84,8 +84,8 @@ rc:startSbc</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>196</x>
-      <y>455</y>
+      <x>238</x>
+      <y>238</y>
       <w>98</w>
       <h>35</h>
     </coordinates>
@@ -97,8 +97,8 @@ setMaster</panel_attributes>
   <element>
     <id>UMLState</id>
     <coordinates>
-      <x>77</x>
-      <y>427</y>
+      <x>119</x>
+      <y>210</y>
       <w>329</w>
       <h>84</h>
     </coordinates>
@@ -112,8 +112,8 @@ valign=top
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>371</x>
-      <y>371</y>
+      <x>413</x>
+      <y>154</y>
       <w>147</w>
       <h>98</h>
     </coordinates>
@@ -125,8 +125,8 @@ rc:runProg(idx)</panel_attributes>
   <element>
     <id>UMLSpecialState</id>
     <coordinates>
-      <x>98</x>
-      <y>462</y>
+      <x>140</x>
+      <y>245</y>
       <w>14</w>
       <h>14</h>
     </coordinates>
@@ -136,8 +136,8 @@ rc:runProg(idx)</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>42</x>
-      <y>357</y>
+      <x>84</x>
+      <y>140</y>
       <w>49</w>
       <h>21</h>
     </coordinates>
@@ -147,8 +147,8 @@ rc:runProg(idx)</panel_attributes>
   <element>
     <id>UMLState</id>
     <coordinates>
-      <x>140</x>
-      <y>455</y>
+      <x>182</x>
+      <y>238</y>
       <w>63</w>
       <h>28</h>
     </coordinates>
@@ -158,8 +158,8 @@ rc:runProg(idx)</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>105</x>
-      <y>462</y>
+      <x>147</x>
+      <y>245</y>
       <w>49</w>
       <h>21</h>
     </coordinates>
@@ -169,8 +169,8 @@ rc:runProg(idx)</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>336</x>
-      <y>462</y>
+      <x>378</x>
+      <y>245</y>
       <w>49</w>
       <h>21</h>
     </coordinates>
@@ -180,8 +180,8 @@ rc:runProg(idx)</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>357</x>
-      <y>371</y>
+      <x>399</x>
+      <y>154</y>
       <w>21</w>
       <h>70</h>
     </coordinates>
@@ -191,8 +191,8 @@ rc:runProg(idx)</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>161</x>
-      <y>476</y>
+      <x>203</x>
+      <y>259</y>
       <w>161</w>
       <h>35</h>
     </coordinates>
@@ -203,8 +203,8 @@ sbc:yieldI2c</panel_attributes>
   <element>
     <id>UMLState</id>
     <coordinates>
-      <x>483</x>
-      <y>350</y>
+      <x>525</x>
+      <y>133</y>
       <w>70</w>
       <h>28</h>
     </coordinates>
@@ -214,8 +214,8 @@ sbc:yieldI2c</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>399</x>
-      <y>350</y>
+      <x>441</x>
+      <y>133</y>
       <w>98</w>
       <h>35</h>
     </coordinates>
@@ -227,8 +227,8 @@ lowVoltage</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>98</x>
-      <y>315</y>
+      <x>140</x>
+      <y>98</y>
       <w>434</w>
       <h>49</h>
     </coordinates>
@@ -239,8 +239,8 @@ ledsOff</panel_attributes>
   <element>
     <id>UMLSpecialState</id>
     <coordinates>
-      <x>371</x>
-      <y>462</y>
+      <x>413</x>
+      <y>245</y>
       <w>14</w>
       <h>14</h>
     </coordinates>
@@ -250,8 +250,8 @@ ledsOff</panel_attributes>
   <element>
     <id>UMLState</id>
     <coordinates>
-      <x>483</x>
-      <y>455</y>
+      <x>525</x>
+      <y>238</y>
       <w>70</w>
       <h>28</h>
     </coordinates>
@@ -261,8 +261,8 @@ ledsOff</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>399</x>
-      <y>455</y>
+      <x>441</x>
+      <y>238</y>
       <w>98</w>
       <h>35</h>
     </coordinates>
@@ -274,8 +274,8 @@ progStarted</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>385</x>
-      <y>371</y>
+      <x>427</x>
+      <y>154</y>
       <w>161</w>
       <h>98</h>
     </coordinates>
@@ -286,8 +286,8 @@ timeout</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>133</x>
-      <y>357</y>
+      <x>175</x>
+      <y>140</y>
       <w>98</w>
       <h>35</h>
     </coordinates>
@@ -299,8 +299,8 @@ timeout</panel_attributes>
   <element>
     <id>UMLState</id>
     <coordinates>
-      <x>203</x>
-      <y>392</y>
+      <x>245</x>
+      <y>175</y>
       <w>91</w>
       <h>28</h>
     </coordinates>
@@ -310,8 +310,8 @@ timeout</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>98</x>
-      <y>392</y>
+      <x>140</x>
+      <y>175</y>
       <w>119</w>
       <h>49</h>
     </coordinates>
@@ -323,8 +323,8 @@ rc:terminateProg
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>287</x>
-      <y>371</y>
+      <x>329</x>
+      <y>154</y>
       <w>77</w>
       <h>42</h>
     </coordinates>
@@ -335,8 +335,8 @@ timeout</panel_attributes>
   <element>
     <id>Relation</id>
     <coordinates>
-      <x>287</x>
-      <y>399</y>
+      <x>329</x>
+      <y>182</y>
       <w>91</w>
       <h>28</h>
     </coordinates>
@@ -347,8 +347,8 @@ sbc:progExit</panel_attributes>
   <element>
     <id>UMLPackage</id>
     <coordinates>
-      <x>14</x>
-      <y>273</y>
+      <x>56</x>
+      <y>56</y>
       <w>588</w>
       <h>273</h>
     </coordinates>

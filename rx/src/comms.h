@@ -15,9 +15,10 @@
 #define TX_SBC_CMD_SHUTDOWN     'U'
 
 // General communication
-#define TX_SBC_GET_NET_STAT     'g'
-#define SBC_TX_NET_STAT         'n'
-#define TX_SBC_SET_SSID         'W'
+#define TX_SBC_CMD_GET_NET_STAT 'g'
+#define SBC_TX_EVT_NET_STAT     'n'
+#define TX_SBC_CMD_SET_SSID     'W'
+#define TX_SBC_EVT_SEN_DATA     'd'  
 
 typedef enum { 
   OFF, 
@@ -33,5 +34,20 @@ typedef enum {
 #define START_SEQ "<!~"
 
 const char *startSeq = START_SEQ;
+
+
+#define UL_FR_IDX 0
+#define UL_LT_IDX 1
+#define UL_RT_IDX 2
+#define UL_BK_IDX 3
+
+typedef struct {
+  int8_t throttle;
+  int8_t steering;
+  uint16_t dists[3];
+  float accX, accY, accZ;
+  float gyroX, gyroY, gyroZ;
+} senData_t;
+
 
 #endif
