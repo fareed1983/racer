@@ -18,6 +18,24 @@
 
 #include "comms.h"
 
+#ifdef __arm__
+// should use uinstd.h to define sbrk but Due causes a conflict
+extern "C" char* sbrk(int incr);
+#else  // __ARM__
+extern char *__brkval;
+#endif  // __arm__
+
+int freeMemory() {
+  char top;
+#ifdef __arm__
+  return &top - reinterpret_cast<char*>(sbrk(0));
+#elif defined(CORE_TEENSY) || (ARDUINO > 103 && ARDUINO != 151)
+  return &top - __brkval;
+#else  // __arm__
+  return __brkval ? &top - __brkval : &top - __malloc_heap_start;
+#endif  // __arm__
+}
+
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define ADDR_OLED 0x3C
@@ -138,7 +156,7 @@ void setup() {
 
   
   Serial.begin(115200);
-  Serial1.begin(460800);
+  Serial1.begin(115200);
   Serial1.setTimeout(10);
 
 
@@ -395,7 +413,7 @@ void loop() {
   uint16_t payloadLen = 0;
   char b;
   while (Serial1.available()) {
-    while (seqMatch != START_END_SEQ_LEN && Serial1.available()) {
+    while (seqMatch != START_SEQ_LEN && Serial1.available()) {
       if (Serial1.readBytes(&b, 1) == 0) {
         Serial.println("Error getting start seq");
         continue;
@@ -410,7 +428,7 @@ void loop() {
       }
     }
 
-    if (seqMatch != START_END_SEQ_LEN) {
+    if (seqMatch != START_SEQ_LEN) {
       Serial.println("Seq not matched");
       break;
     }
@@ -440,21 +458,6 @@ void loop() {
       Serial.println("Error getting CRC");
       break;
     }
-
-    if (Serial1.readBytes(str1, START_END_SEQ_LEN) != 1) {
-      Serial.println("Error getting end sequence");
-      break;
-    }
-
-    int s;
-    for (s = 0; s < START_END_SEQ_LEN; s++) {
-      if (str1[s] != endSeq[s]) {
-        Serial.println("Error matching end sequence");
-        break;
-      }
-    }
-
-    if (s != START_END_SEQ_LEN) break;
 
     if (calcCrc8((uint8_t *)buf, payloadLen + 3) != crc) {
       Serial.println("CRC mismatch");
@@ -505,6 +508,8 @@ void loop() {
     if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
       Serial.println("Could not write");
     }
+
+    Serial.printf("freeMem: %d\n", freeMemory());
   }
 
 
@@ -591,16 +596,16 @@ void loop() {
 }
 
 bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
-    memcpy(buf, startSeq, START_END_SEQ_LEN);
-    *(buf + START_END_SEQ_LEN) =  cmd;
-    memcpy(buf + START_END_SEQ_LEN + 1, &payloadLen, 2);
-    memcpy(buf + START_END_SEQ_LEN + 3, payload, payloadLen);
-    *(buf + START_END_SEQ_LEN + 3 + payloadLen) = calcCrc8((uint8_t *)(buf + START_END_SEQ_LEN), 3 + payloadLen);
-    memcpy(buf +  START_END_SEQ_LEN + 4 + payloadLen, endSeq, START_END_SEQ_LEN);
-    size_t bytes = START_END_SEQ_LEN * 2 + 4 + payloadLen;
+    memcpy(buf, startSeq, START_SEQ_LEN);
+    *(buf + START_SEQ_LEN) =  cmd;
+    memcpy(buf + START_SEQ_LEN + 1, &payloadLen, 2);
+    memcpy(buf + START_SEQ_LEN + 3, payload, payloadLen);
+    *(buf + START_SEQ_LEN + 3 + payloadLen) = calcCrc8((uint8_t *)(buf + START_SEQ_LEN), 3 + payloadLen);
+    size_t bytes = START_SEQ_LEN + 4 + payloadLen;
+
     if (Serial1.write(buf, bytes) != bytes) return false; 
 
-    Serial.printf("Wrote %c payloadLen:%d\n", cmd, payloadLen);
+    Serial.printf("Wrote %c payloadLen:%d, bytes: %d\n", cmd, payloadLen, bytes);
 
     return true;
 }

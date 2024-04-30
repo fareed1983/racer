@@ -4,8 +4,6 @@
 #include "comms.h"
 
 const char *startSeq = START_SEQ;
-const char *endSeq = END_SEQ;
-
 
 uint8_t calcCrc8(uint8_t *data, size_t len) {
   uint8_t crc = 0;
