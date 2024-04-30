@@ -138,8 +138,9 @@ void setup() {
 
   
   Serial.begin(115200);
-  Serial1.begin(115200);
+  Serial1.begin(460800);
   Serial1.setTimeout(10);
+
 
   pwm.begin();
   pwm.setOscillatorFrequency(27000000);
@@ -381,30 +382,6 @@ void loop() {
   v = mpu.getAngleZ();
   v = int(v * 10) / 10.0;
 
-  if (sbcState == SBC_ST_PROG_PASSIVE || sbcState == SBC_ST_PROG_MASTER) {
-    sd = {
-      throttle: connected ? cmd.th : 0,
-      steering: connected ? cmd.st : 0,
-      dists: { dists[0], dists[1], dists[2] },
-      accX: mpu.getAccX(),
-      accY: mpu.getAccY(),
-      accZ: mpu.getAccZ(),
-      gyroX: mpu.getGyroX(),
-      gyroY: mpu.getGyroY(),
-      gyroZ: mpu.getGyroZ()
-    };
-
-    // Serial.printf("\tthrottle: %d\n", sd.throttle);
-    // Serial.printf("\tsteering: %d\n", sd.steering);
-    // Serial.printf("\tdists: %d %d %d\n", sd.dists[0], sd.dists[1], sd.dists[2]);
-    // Serial.printf("\taccX: %.2f, accY: %.2f, accZ: %.2f\n", sd.accX, sd.accY, sd.accZ);
-    // Serial.printf("\tgyroX: %.2f, gyroY: %.2f, gryoZ: %.2f\n", sd.gyroX, sd.gyroY, sd.gyroZ);
-
-    if (!writeCmd(TX_SBC_EVT_SEN_DATA, (uint8_t *)&sd, sizeof(sd))) {
-      Serial.println("Error sending sensor data");
-    }
-  }
-
   if (v != lastYaw) {
     lastYaw = v;
     upd0 = true;
@@ -418,7 +395,7 @@ void loop() {
   uint16_t payloadLen = 0;
   char b;
   while (Serial1.available()) {
-    while (seqMatch != START_SEQ_LEN && Serial1.available()) {
+    while (seqMatch != START_END_SEQ_LEN && Serial1.available()) {
       if (Serial1.readBytes(&b, 1) == 0) {
         Serial.println("Error getting start seq");
         continue;
@@ -433,38 +410,58 @@ void loop() {
       }
     }
 
-    if (seqMatch != START_SEQ_LEN) {
+    if (seqMatch != START_END_SEQ_LEN) {
       Serial.println("Seq not matched");
       break;
     }
 
-    if (!Serial1.readBytes(buf, 1)) {
+    if (Serial1.readBytes(buf, 1) != 1) {
       Serial.println("Error getting command");
       break;
     }
 
-    if (!Serial1.readBytes((char *)&payloadLen, 2)) {
+    if (Serial1.readBytes(buf + 1, 2) != 2) {
       Serial.println("Error getting payloadLen");
       break;
     }
 
+    payloadLen = *(buf + 1);
+
+
+    Serial.printf("cmd: %c payloadLen: %d\n", *buf, payloadLen);
+
+    if (Serial1.readBytes(buf + 3, payloadLen) != payloadLen) {
+      Serial.println("Error getting payload");
+      break;
+    }
+
     uint8_t crc;
-    if (!Serial.readBytes((char *)&crc, 1)) {
+    if (Serial1.readBytes((char *)&crc, 1) != 1) {
       Serial.println("Error getting CRC");
       break;
     }
 
-    if (calcCrc8((uint8_t *)buf, payloadLen + 1) != crc) {
+    if (Serial1.readBytes(str1, START_END_SEQ_LEN) != 1) {
+      Serial.println("Error getting end sequence");
+      break;
+    }
+
+    int s;
+    for (s = 0; s < START_END_SEQ_LEN; s++) {
+      if (str1[s] != endSeq[s]) {
+        Serial.println("Error matching end sequence");
+        break;
+      }
+    }
+
+    if (s != START_END_SEQ_LEN) break;
+
+    if (calcCrc8((uint8_t *)buf, payloadLen + 3) != crc) {
       Serial.println("CRC mismatch");
       break;
     }
 
     Serial.printf("Got Cmd: %c, payloadLen: %d\n", *buf, payloadLen);
-
-    if (Serial1.readBytes(buf + 1, payloadLen) != payloadLen) {
-      Serial.println("Error getting payload");
-      break;
-    }
 
     switch (*buf) {
       case SBC_TX_EVT_RUNNING:
@@ -508,6 +505,7 @@ void loop() {
     if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
       Serial.println("Could not write");
     }
+  }
 
 
     // sensors_event_t event; 
@@ -541,7 +539,27 @@ void loop() {
     // float headingDegrees = heading * 180/M_PI; 
     
     // Serial.print("Heading (degrees): "); Serial.println(headingDegrees);
-    
+  if (sbcState == SBC_ST_PROG_PASSIVE || sbcState == SBC_ST_PROG_MASTER) {
+    sd = {
+      throttle: connected ? cmd.th : 0,
+      steering: connected ? cmd.st : 0,
+      dists: { dists[0], dists[1], dists[2] },
+      accX: mpu.getAccX(),
+      accY: mpu.getAccY(),
+      accZ: mpu.getAccZ(),
+      gyroX: mpu.getGyroX(),
+      gyroY: mpu.getGyroY(),      
+      gyroZ: mpu.getGyroZ()
+    };
+
+    // Serial.printf("\tthrottle: %d\n", sd.throttle);
+    // Serial.printf("\tsteering: %d\n", sd.steering);
+    // Serial.printf("\tdists: %d %d %d\n", sd.dists[0], sd.dists[1], sd.dists[2]);
+    // Serial.printf("\taccX: %.2f, accY: %.2f, accZ: %.2f\n", sd.accX, sd.accY, sd.accZ);
+    // Serial.printf("\tgyroX: %.2f, gyroY: %.2f, gryoZ: %.2f\n", sd.gyroX, sd.gyroY, sd.gyroZ);
+    if (!writeCmd(TX_SBC_EVT_SEN_DATA, (uint8_t *)&sd, sizeof(sd))) {
+      Serial.println("Error sending sensor data");
+    }
   }
 
 
@@ -573,12 +591,13 @@ void loop() {
 }
 
 bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
-    memcpy(buf, startSeq, START_SEQ_LEN);
-    *(buf + START_SEQ_LEN) =  cmd;
-    memcpy(buf + START_SEQ_LEN + 1, &payloadLen, 2);
-    memcpy(buf + START_SEQ_LEN + 3, payload, payloadLen);
-    *(buf + START_SEQ_LEN + 3 + payloadLen) = calcCrc8((uint8_t *)(buf + START_SEQ_LEN), 3 + payloadLen);
-    size_t bytes = START_SEQ_LEN + 4 + payloadLen;
+    memcpy(buf, startSeq, START_END_SEQ_LEN);
+    *(buf + START_END_SEQ_LEN) =  cmd;
+    memcpy(buf + START_END_SEQ_LEN + 1, &payloadLen, 2);
+    memcpy(buf + START_END_SEQ_LEN + 3, payload, payloadLen);
+    *(buf + START_END_SEQ_LEN + 3 + payloadLen) = calcCrc8((uint8_t *)(buf + START_END_SEQ_LEN), 3 + payloadLen);
+    memcpy(buf +  START_END_SEQ_LEN + 4 + payloadLen, endSeq, START_END_SEQ_LEN);
+    size_t bytes = START_END_SEQ_LEN * 2 + 4 + payloadLen;
     if (Serial1.write(buf, bytes) != bytes) return false; 
 
     Serial.printf("Wrote %c payloadLen:%d\n", cmd, payloadLen);

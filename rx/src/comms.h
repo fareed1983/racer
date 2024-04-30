@@ -30,10 +30,12 @@ typedef enum {
   PROG_TERMINATING
 } sbcStates_t;
 
-#define START_SEQ_LEN 4
-#define START_SEQ "<!~|"
+#define START_END_SEQ_LEN 4
 
-extern const char *startSeq;
+#define START_SEQ "<!~|"
+#define END_SEQ "&%@>"
+
+extern const char *startSeq, *endSeq;
 
 
 #define UL_FR_IDX 0
