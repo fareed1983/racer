@@ -68,9 +68,10 @@ int main(int argc, char **argv)
     cfsetispeed(&options, B115200);
     cfsetospeed(&options, B115200);
     options.c_cflag &= ~CSIZE;           // Mask character size bits
+    options.c_cflag &= ~CSTOPB;          // Clear stop field
     options.c_cflag |= CS8;              // 8 data bits
+    // options.c_cflag |= CSTOPB;  // Set two stop bits
     options.c_cflag &= ~PARENB;          // No parity
-    options.c_cflag &= ~CSTOPB;          // 1 stop bit
     options.c_cflag &= ~CRTSCTS;         // Disable hardware flow control
     options.c_lflag &= ~ECHO;            // Disable echo
     options.c_lflag &= ~ICANON;          // Disable canonical input mode (line oriented)

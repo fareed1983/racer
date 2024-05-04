@@ -16,6 +16,8 @@
 #include <Adafruit_HMC5883_U.h>
 #include <math.h>
 
+
+
 #include "comms.h"
 
 #ifdef __arm__
@@ -154,7 +156,6 @@ void setup() {
   // irs[0] = { sender: new IRsend(), pin: PIN_IR_BK, cmd: 'b' };
   // irs[1] = { sender: new IRsend(), pin: PIN_IR_FR, cmd: 'f' };
 
-  
   Serial.begin(115200);
   Serial1.begin(115200);
   Serial1.setTimeout(10);
