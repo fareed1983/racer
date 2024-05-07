@@ -18,7 +18,8 @@
 #define SERIAL_PORT "/dev/serial0"
 
 #define SEN_DAT_FIFO "/tmp/sensor_data_fifo"
-// #define SERIAL_PORT "/dev/ttyAMA1"
+
+//gcc host.c comms.c uart.c i2cSlave.c  -lpigpio -pthread -o host
 
 struct
 {
@@ -49,8 +50,24 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    
     printf("Opened serial port\n");
+
+
+    if (mkfifo(SEN_DAT_FIFO, 0666) == -1) {
+        if (errno !=EEXIST) {
+            perror("Failed to create FIFO");
+            return EXIT_FAILURE;
+        }
+    }
+
+    int senDataFd;
+    
+    if ((senDataFd = open(SEN_DAT_FIFO, O_RDWR | O_NONBLOCK)) == -1) {
+        perror("Failed to open sensor data fifo");
+        return EXIT_FAILURE;
+    }
+
+    printf("Opened sensor data pipe\n");
 
     pthread_t uartThread, i2cThread;
     int ret;
@@ -61,7 +78,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    ret = pthread_create(&i2cThread, NULL, i2cReader, &serialFd);
+    ret = pthread_create(&i2cThread, NULL, i2cReader, &senDataFd);
     if (ret) {
         fprintf(stderr, "Error - pthread_create() return code: %d\n", ret);
         exit(EXIT_FAILURE);
@@ -78,20 +95,6 @@ int main(int argc, char **argv)
         printf("\n");
     }
 
-
-    if (mkfifo(SEN_DAT_FIFO, 0666) == -1) {
-        if (errno !=EEXIST) {
-            perror("Failed to create FIFO");
-            return EXIT_FAILURE;
-        }
-    }
-    int senDataFd;
-    
-    if ((senDataFd = open(SEN_DAT_FIFO, O_RDWR | O_NONBLOCK)) == -1) {
-        perror("Failed to open sensor data fifo");
-        return EXIT_FAILURE;
-    }
-
     if (!uartWriteCmd(serialFd, SBC_TX_EVT_RUNNING, NULL, 0))
     {
         fprintf(stderr, "Error writing EVT_RUNNING\n");
@@ -105,7 +108,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "Error writing EVT_PROG_STARTED\n");
         return EXIT_FAILURE;
     }
-
 
     pthread_join(uartThread, NULL);
 
@@ -166,6 +168,8 @@ void* uartReader(void* arg) {
 
 void* i2cReader(void* arg) {
 
+    int senDataFd = *(int*)arg;
+
     if (!slaveInit()) {
         printf("Error init i2c slave\n");
         exit(EXIT_FAILURE);
@@ -197,16 +201,16 @@ void* i2cReader(void* arg) {
                     senData: *sd,
                     timeMs: (long long)(tv.tv_sec) * 1000 + (tv.tv_usec) / 1000
                 };
-                // size_t res;
-                // if ((res=write(senDataFd, &spd, sizeof(senProgData_t))) == -1) {
-                //     if (res == EAGAIN || res == EWOULDBLOCK) {
-                //         perror("Again/would-block");
-                //     } else if (res == EPIPE) {
-                //         perror("No readers");
-                //     } else {
-                //         perror("Write failed");
-                //     }
-                // }
+                size_t res;
+                if ((res=write(senDataFd, &spd, sizeof(senProgData_t))) == -1) {
+                    if (res == EAGAIN || res == EWOULDBLOCK) {
+                        perror("Again/would-block");
+                    } else if (res == EPIPE) {
+                        perror("No readers");
+                    } else {
+                        perror("Write failed");
+                    }
+                }
                 break;
         }
         printf("I2C read %d bytes\n", readSize);    

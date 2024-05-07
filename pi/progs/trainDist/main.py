@@ -11,19 +11,21 @@ from picamera2.picamera2 import *
 
 # pip install opencv-python
 
-
+currTimeStamp = None
+lock = threading.Lock()
 
 def get_time_stamp_from_ms(ms):
     seconds = ms / 1000.0
     utc_dt = datetime.fromtimestamp(seconds, tz=timezone.utc)
     local_tz = pytz.timezone(os.getenv('TZ'))
     if not local_tz:
-        local_tz = timezone.utc
+        local_tz = pytz.timezone("Australia/Melbourne")
     local_dt = utc_dt.astimezone(local_tz)
     return local_dt.strftime('%Y-%m-%d-%H:%M:%S.%f')[:-3]
     
 
 def read_sensor_data(output_folder):
+    global currTimeStamp
     sensor_fifo_path = '/tmp/sensor_data_fifo'
     sensor_struct_format = 'qbb3H6f'
 
@@ -55,6 +57,8 @@ def read_sensor_data(output_folder):
                         'gyroZ': upd[11]
                     }
                     sen_prog_data['timeMs']=get_time_stamp_from_ms(sen_prog_data['timeMs'])
+                    with lock:
+                        currTimeStamp = sen_prog_data['timeMs']
                     #print(sen_prog_data)
                     out_file.write(binary_data)
 
@@ -66,23 +70,49 @@ def read_sensor_data(output_folder):
         os.fsync(out_file.fileno())
         out_file.close()
 
+
+# libcamera-vid --list-cameras
+# Available cameras
+# -----------------
+# 0 : ov5647 [2592x1944 10-bit GBRG] (/base/soc/i2c0mux/i2c@1/ov5647@36)
+#     Modes: 'SGBRG10_CSI2P' : 640x480 [58.92 fps - (16, 0)/2560x1920 crop]
+#                              1296x972 [43.25 fps - (0, 0)/2592x1944 crop]
+#                              1920x1080 [30.62 fps - (348, 434)/1928x1080 crop]
+#                              2592x1944 [15.63 fps - (0, 0)/2592x1944 crop]
+
 def capture_images(output_folder):
 
 
     picam2 = Picamera2()
-    config = picam2.create_still_configuration(main= {"size": (800, 600)}, lores = {"size": (800, 600)}, display = None, buffer_count = 3, queue = False)
+    
+    config = picam2.create_still_configuration(main= {"size": (1920, 1080)}, lores = {"size": (1920, 1080)}, display = None, buffer_count = 3, queue = False)
     picam2.configure(config)
-
     picam2.start(show_preview=False)
-
+    
     try:
-        for i in range(1000):
-            img = picam2.capture_array("lores")            
-            edges = cv2.Canny(img, 50, 150, apertureSize=3)
+        while True:
+            yuv = picam2.capture_array("lores")
+            rgb = cv2.cvtColor(yuv, cv2.COLOR_YUV420p2RGB)
+
+            # Process image
+                  # Convert BGR to Grayscale
+            gray_image = cv2.cvtColor(rgb, cv2.COLOR_BGR2GRAY)
+            blurred_image = cv2.bilateralFilter(gray_image, 9, 75, 75)  # Experiment with these parameters
+
+            #blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+            edges = cv2.Canny(blurred_image, 40, 100, apertureSize=3)  # Adjusted thresholds and aperture size
             dialated_edges = cv2.dilate(edges, np.ones((3,3), np.uint8), iterations = 1)
 
+            with lock:
+                i = currTimeStamp
+
+            if i == None:
+                i = get_time_stamp_from_ms(int(time.time() * 1000))
+
+            source_image_path = os.path.join(output_folder, f'source_image_{i}.jpg')
             processed_image_path = os.path.join(output_folder, f'processed_image_{i}.jpg')
             cv2.imwrite(processed_image_path, dialated_edges)
+            cv2.imwrite(source_image_path, rgb)
 
             cv2.imshow("Processed Image", cv2.resize(dialated_edges, (0,0), fx=0.5, fy=0.5))
             if cv2.waitKey(1) & 0xff == ord('q'):
