@@ -16,40 +16,11 @@
 #include <Adafruit_HMC5883_U.h>
 #include <math.h>
 
-
-
 #include "comms.h"
-
-#ifdef __arm__
-// should use uinstd.h to define sbrk but Due causes a conflict
-extern "C" char* sbrk(int incr);
-#else  // __ARM__
-extern char *__brkval;
-#endif  // __arm__
-
-int freeMemory() {
-  char top;
-#ifdef __arm__
-  return &top - reinterpret_cast<char*>(sbrk(0));
-#elif defined(CORE_TEENSY) || (ARDUINO > 103 && ARDUINO != 151)
-  return &top - __brkval;
-#else  // __arm__
-  return __brkval ? &top - __brkval : &top - __malloc_heap_start;
-#endif  // __arm__
-}
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define ADDR_OLED 0x3C
-
-// Radio stuff
-#define RF69_FREQ 433.0
-#define RFM69_CS    8
-#define RFM69_INT   3
-#define RFM69_RST   4
-
-#define RX_ADDR   1
-#define TX_ADDR   2
 
 #define PIN_LED_DATA A4
 
@@ -78,15 +49,18 @@ int freeMemory() {
 #define SER_MID 1500
 #define SER_MAX 1850
 
-#define ESC_MIN 1100
+#define ESC_MIN 1200
 #define ESC_MID 1500
-#define ESC_MAX 1900
+#define ESC_MAX 1800
 
 #define ULTRAS_TOT 3
+
+#define I2C_SLAVE_ADDR 0x03
 
 
 /*
   0x1e  Magnometer HW-127
+  0x03  Pi Slave
   0x27  16x2 LCD
   0x3c  OLED   
   0x40  PWM
@@ -128,14 +102,8 @@ float prevBattV = 0, lastYaw = 0;
 unsigned long nextSec = 0, poweroffTransition = 0;
 bool connected = false;
 char sbcState = SBC_ST_OFF;
-char str1[128] = {0}, buf[128];
+char buf[255] = {0};
 senData_t sd;
-
-struct {
-  int th;
-  int st;
-  bool raspToggle;
-} cmd;
 
 // struct {
 //   IRsend *sender;
@@ -156,9 +124,10 @@ void setup() {
   // irs[0] = { sender: new IRsend(), pin: PIN_IR_BK, cmd: 'b' };
   // irs[1] = { sender: new IRsend(), pin: PIN_IR_FR, cmd: 'f' };
 
+  
   Serial.begin(115200);
   Serial1.begin(115200);
-  Serial1.setTimeout(10);
+  Serial1.setTimeout(20);
 
 
   pwm.begin();
@@ -201,8 +170,8 @@ void setup() {
   uint8_t key[] = "FareedR11051983";
   rf69.setEncryptionKey(key);
   
-  FastLED.addLeds<NEOPIXEL, PIN_LED_DATA>(leds, NUM_LEDS);  // GRB ordering is assumed
-  FastLED.setBrightness(2);
+  // FastLED.addLeds<NEOPIXEL, PIN_LED_DATA>(leds, NUM_LEDS);  // GRB ordering is assumed
+  // FastLED.setBrightness(2);
 
   ESCUS(ESC_MID);
   SERUS(SER_MID);
@@ -215,7 +184,7 @@ void setup() {
   Serial.println("Scanning...");
 
   Wire.begin();
-  Wire.setClock(1000000);
+  Wire.setClock(1000000); // 1MHz
 
   nDevices = 0;
   for(address = 1; address < 127; address++)
@@ -293,11 +262,15 @@ void setup() {
   Serial.println("");
 }
 
+bool upd0 = true, upd1 = true;
+
 void loop() {
 
-  uint8_t len = sizeof(cmd);
+  txRxSimpleCtrl_t sc;
+  memset(&sc, 0, sizeof(sc));
+
+  uint8_t len = sizeof(buf);
   uint8_t from;
-  bool upd0 = false, upd1 = false;
   unsigned long currTime = millis(); 
   char prevSbcState = sbcState;
 
@@ -308,52 +281,69 @@ void loop() {
     poweroffTransition = 0;
   }
 
-  if (rf69_manager.recvfromAckTimeout((uint8_t *)&cmd, &len, 150, &from)) {
-    int ss = map(cmd.st, -100, 100, SER_MIN, SER_MAX);
-    if (cmd.raspToggle) {
-      switch (sbcState) {
-        case SBC_ST_OFF:
-          digitalWrite(PIN_PWR_CTRL, false);
-          delay(1000);
-          digitalWrite(PIN_PWR_CTRL, true);
-          sbcState = SBC_ST_BOOTING;
-          break;
-        
-        case SBC_ST_BOOTING:        
-        case SBC_ST_POWERING_OFF:
-          Serial.println("Not doing anything as transitory state");
-          break;
+  if (rf69_manager.recvfromAckTimeout((uint8_t *)&buf, &len, 150, &from)) {
+    if (*buf == TX_RX_CMD_DIRECTION_CTRL) {
+      // Populate the simpCtrl and rest is the same as SIMPLE_CTRL
+    }
+    //Serial.printf("Got cmd %c\n", *((char *)buf));
+    
+    int es, ss;
 
-        default:
-          writeCmd(TX_SBC_CMD_SHUTDOWN, NULL, 0);
-          sbcState = SBC_ST_POWERING_OFF;
-          poweroffTransition = currTime + 20000;
-          break;
+    switch (*buf) {
+
+      case TX_RX_CMD_SIMPLE_CTRL:
+        memcpy(&sc, buf + 1, sizeof(txRxSimpleCtrl_t));
+
+      case TX_RX_CMD_DIRECTION_CTRL:
+
+        ss = map(sc.steering, -100, 100, SER_MIN, SER_MAX);
+
+        if (sc.throttle < 1) sc.throttle /= 2;
+        es = map(sc.throttle, -100, 100, ESC_MIN, ESC_MAX);
+
+        if (distFront < DANGER_DIST && sc.throttle > 0) {
+          es = ESC_MID;
+        }
+
+        if (prevSs != ss) {
+          SERUS(ss);
+          prevSs = ss;
+          upd1 = true;
+        }
+
+        if (prevEs != es) {
+          ESCUS(es);
+          prevEs = es;
+          upd1 = true;
+        }
+      break;
+
+      case TX_RX_CMD_START_SBC:
+        switch (sbcState) {
+          case SBC_ST_OFF:
+            digitalWrite(PIN_PWR_CTRL, false);
+            delay(1000);
+            digitalWrite(PIN_PWR_CTRL, true);
+            sbcState = SBC_ST_BOOTING;
+            break;
+          
+          case SBC_ST_BOOTING:        
+          case SBC_ST_POWERING_OFF:
+            Serial.println("Not doing anything as transitory state");
+            break;
+
+          default:
+            writeCmd(RX_SBC_CMD_SHUTDOWN, NULL, 0);
+            sbcState = SBC_ST_POWERING_OFF;
+            poweroffTransition = currTime + 20000;
+            break;
       }
-    }
-
-    if (cmd.th < 1) cmd.th /= 2;
-    int es = map(cmd.th, -100, 100, ESC_MIN, ESC_MAX);
-
-    if (distFront < DANGER_DIST && cmd.th > 0) {
-      es = ESC_MID;
-    }
-
-    if (prevSs != ss) {
-      SERUS(ss);
-      prevSs = ss;
-      upd1 = true;
-    }
-
-    if (prevEs != es) {
-      ESCUS(es);
-      prevEs = es;
-      upd1 = true;
+      break;    
     }
     
     connected = true;
   } else if (connected) {   // no command received
-
+    Serial.println("DISCO");
     if (prevEs != ESC_MID || prevSs != SER_MID) {
       prevEs = ESC_MID;
       prevSs = SER_MID;
@@ -369,12 +359,12 @@ void loop() {
   
   for (d = 0; d < ULTRAS_TOT; d++) {
     dists[d] = ultras[d].read();
-    delay(10);
+    // delay(10);
   }
 
   if (distFront != dists[UL_FR_IDX]) {
     distFront = dists[UL_FR_IDX];
-    if (distFront < DANGER_DIST && cmd.th > 0 && prevEs != ESC_MID) {
+    if (distFront < DANGER_DIST && sc.throttle > 0 && prevEs != ESC_MID) {
         ESCUS(ESC_MID); 
     }
     //upd = true;
@@ -447,7 +437,7 @@ void loop() {
     payloadLen = *(buf + 1);
 
 
-    Serial.printf("cmd: %c payloadLen: %d\n", *buf, payloadLen);
+    //Serial.printf("cmd: %c payloadLen: %d\n", *buf, payloadLen);
 
     if (Serial1.readBytes(buf + 3, payloadLen) != payloadLen) {
       Serial.println("Error getting payload");
@@ -468,16 +458,16 @@ void loop() {
     Serial.printf("Got Cmd: %c, payloadLen: %d\n", *buf, payloadLen);
 
     switch (*buf) {
-      case SBC_TX_EVT_RUNNING:
+      case SBC_RX_EVT_RUNNING:
         Serial.println("Got EVT_RUNNING");
         sbcState = SBC_ST_READY;
         break;
 
-      case SBC_TX_EVT_PONG:
-        Serial.println("Got PONG!");
+      case SBC_RX_EVT_PONG:
+        //Serial.println("Got PONG!");
         break;
       
-      case SBC_TX_EVT_PROG_STARTED:
+      case SBC_RX_EVT_PROG_STARTED:
         Serial.println("Got PROG started");
         sbcState = SBC_ST_PROG_PASSIVE;
         break;
@@ -488,29 +478,29 @@ void loop() {
 
   if (upd0) {
     lcd.setCursor(0, 0);
-    sprintf(str1, "%d:%03d V%.01f Y%.01f  ", ultraIdx, dists[ultraIdx], prevBattV, lastYaw);
-    lcd.print(str1);
+    sprintf(buf, "%d:%03d V%.01f Y%.01f  ", ultraIdx, dists[ultraIdx], prevBattV, lastYaw);
+    lcd.print(buf);
   }
 
   if (upd1) {
     lcd.setCursor(0, 1);
     if (connected) {
-      sprintf(str1, "%c T:%03d S:%03d", sbcState, cmd.th, cmd.st);
+      sprintf(buf, "%c T:%03d S:%03d", sbcState, sc.throttle, sc.steering);
     } else {
-        sprintf(str1, "%c DISCO         ", sbcState);
+        sprintf(buf, "%c DISCO         ", sbcState);
     }
-    lcd.print(str1);
+    lcd.print(buf);
   }
 
   if (nextSec < currTime) {
+    //Serial.println("Writing ping");
     ultraIdx ++;
     if (ultraIdx == ULTRAS_TOT) ultraIdx = 0;
     nextSec = currTime + 1000;
-    if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
+    if (!writeCmd(RX_SBC_CMD_PING, NULL, 0)) {
       Serial.println("Could not write");
     }
 
-    Serial.printf("freeMem: %d\n", freeMemory());
   }
 
 
@@ -543,12 +533,12 @@ void loop() {
     
     // // Convert radians to degrees for readability.
     // float headingDegrees = heading * 180/M_PI; 
-    
+  //delay(1000);
     // Serial.print("Heading (degrees): "); Serial.println(headingDegrees);
   if (sbcState == SBC_ST_PROG_PASSIVE || sbcState == SBC_ST_PROG_MASTER) {
     sd = {
-      throttle: connected ? cmd.th : 0,
-      steering: connected ? cmd.st : 0,
+      throttle: sc.throttle,
+      steering: sc.steering,
       dists: { dists[0], dists[1], dists[2] },
       accX: mpu.getAccX(),
       accY: mpu.getAccY(),
@@ -558,14 +548,26 @@ void loop() {
       gyroZ: mpu.getGyroZ()
     };
 
+
+    Wire.beginTransmission(I2C_SLAVE_ADDR);
+    Wire.write(RX_SBC_EVT_SEN_DATA);
+    Wire.write((byte *)&sd, sizeof(senData_t));
+    Wire.endTransmission(I2C_SLAVE_ADDR);
+
+    // if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
+    //   Serial.println("Could not write");
+    // }
+    //     if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
+    //   Serial.println("Could not write");
+    // }
     // Serial.printf("\tthrottle: %d\n", sd.throttle);
     // Serial.printf("\tsteering: %d\n", sd.steering);
     // Serial.printf("\tdists: %d %d %d\n", sd.dists[0], sd.dists[1], sd.dists[2]);
     // Serial.printf("\taccX: %.2f, accY: %.2f, accZ: %.2f\n", sd.accX, sd.accY, sd.accZ);
     // Serial.printf("\tgyroX: %.2f, gyroY: %.2f, gryoZ: %.2f\n", sd.gyroX, sd.gyroY, sd.gyroZ);
-    if (!writeCmd(TX_SBC_EVT_SEN_DATA, (uint8_t *)&sd, sizeof(sd))) {
-      Serial.println("Error sending sensor data");
-    }
+    // if (!writeCmd(TX_SBC_EVT_SEN_DATA, (uint8_t *)&sd, sizeof(sd))) {
+    //   Serial.println("Error sending sensor data");
+    // }
   }
 
 
@@ -592,20 +594,19 @@ void loop() {
   // }
 
 
-  FastLED.show();
+  //FastLED.show();
 
 }
 
 bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
     memcpy(buf, startSeq, START_SEQ_LEN);
-    *(buf + START_SEQ_LEN) =  cmd;
+    memcpy(buf + START_SEQ_LEN, &cmd, 1);
     memcpy(buf + START_SEQ_LEN + 1, &payloadLen, 2);
     memcpy(buf + START_SEQ_LEN + 3, payload, payloadLen);
-    *(buf + START_SEQ_LEN + 3 + payloadLen) = calcCrc8((uint8_t *)(buf + START_SEQ_LEN), 3 + payloadLen);
+    uint8_t crc = calcCrc8((uint8_t *)(buf + START_SEQ_LEN), 3 + payloadLen);
+    memcpy(buf + START_SEQ_LEN + 3 + payloadLen, &crc, 1);
     size_t bytes = START_SEQ_LEN + 4 + payloadLen;
-
     if (Serial1.write(buf, bytes) != bytes) return false; 
-
     Serial.printf("Wrote %c payloadLen:%d, bytes: %d\n", cmd, payloadLen, bytes);
 
     return true;

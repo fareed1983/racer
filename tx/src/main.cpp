@@ -9,6 +9,8 @@
 
 #include <IRremote.hpp>
 
+#include "comms.h"
+
 #define PIN_CLK A1
 #define PIN_LATCH A2
 #define PIN_DATA A3
@@ -30,17 +32,6 @@
 #define SCREEN_HEIGHT 64
 #define ADDR_OLED 0x3C
 
-/* Radio stuff */
-#define RF69_FREQ 433.0
-
-#define RFM69_CS    8
-#define RFM69_INT   3
-#define RFM69_RST   4
-#define LED        13
-
-#define RX_ADDR   1
-#define TX_ADDR   2
-
 #define SPKR_ITER 3
 
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
@@ -48,7 +39,7 @@ RHReliableDatagram rf69_manager(rf69, TX_ADDR);
 
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-char str1[128] = {0}, str2[32];
+char buf[1024], str1[128] = {0}, str2[32];
 
 #define WINDOW_SIZE 5
 
@@ -65,17 +56,13 @@ typedef struct {
   float average = 0;
 } reading_t;
 
-struct {
-  int th;
-  int st;
-  bool raspToggle;
-} cmd;
-
 #define REV_TRANS_CNT 8 // How many iterations with switch pressed to change reverse state
 reading_t rTh, rVx, rVy;
 
 int prevSteer = 0, prevThrottle = 0, cenVx = 0, cenVy = 0, prevRev = false, rev = false, revTrans = REV_TRANS_CNT, lastCmd = 0, txFailCount = 0;
 uint8_t spkr = 0;
+
+txRxSimpleCtrl_t sc;
 
 // Initialize the readings array to 0
 void initReadings(reading_t *r) {
@@ -117,8 +104,6 @@ void setup() {
   connState = INIT;
   prevConnState = NOS;
 
-
-  pinMode(LED, OUTPUT);
   pinMode(RFM69_RST, OUTPUT);
   digitalWrite(RFM69_RST, LOW);
   
@@ -195,7 +180,7 @@ void setup() {
   
   IrReceiver.begin(PIN_IR_RCV, ENABLE_LED_FEEDBACK);
 
-  delay(2000);
+  delay(500);
 }
 
 
@@ -330,7 +315,7 @@ void loop() {
     if (cth > 100) cth = 100;
     if (rev) cth *= -1;
 
-    cst = (cenVx - vrx) / 5.12;
+    cst = (cenVx - vrx) / -5.12;
     
     sprintf(str1, "S:%d", cst);
     display.setCursor(0, 25);
@@ -349,12 +334,14 @@ void loop() {
     display.print(str1);
 
 
-    if (cmd.th != cth || cmd.st != cst || lastCmd + 100 < ms || swb) {
-      cmd.th = cth;
-      cmd.st = cst;
-      cmd.raspToggle = swb;
+    if (sc.throttle != cth || sc.steering != cst || lastCmd + 100 < ms || swb) {
+      sc.throttle  = cth;
+      sc.steering  = cst;
+     //cmd.raspToggle = swb;
+      buf[0] = TX_RX_CMD_SIMPLE_CTRL;
+      memcpy(buf + 1, &sc, sizeof(sc));
 
-      if (!rf69_manager.sendtoWait((uint8_t *)&cmd, sizeof(cmd), RX_ADDR)) {
+      if (!rf69_manager.sendtoWait((uint8_t *)buf, sizeof(txRxDirectionCtrl_t) + 1, RX_ADDR)) {
         if (txFailCount == 5) {
           spkr = SPKR_ITER;
           connState = FAIL;
