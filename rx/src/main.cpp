@@ -331,14 +331,23 @@ void loop() {
           case SBC_ST_POWERING_OFF:
             Serial.println("Not doing anything as transitory state");
             break;
-
-          default:
-            writeCmd(RX_SBC_CMD_SHUTDOWN, NULL, 0);
-            sbcState = SBC_ST_POWERING_OFF;
-            poweroffTransition = currTime + 20000;
-            break;
       }
-      break;    
+      //break; // TODO separate the commands later
+    
+    case TX_RX_CMD_SHUTDOWN_SBC:
+      switch (sbcState) {
+        case SBC_ST_OFF:
+        case SBC_ST_BOOTING:
+        case SBC_ST_POWERING_OFF:
+          Serial.println("Wrong state to power off");
+          break;
+        
+        default:
+          writeCmd(RX_SBC_CMD_SHUTDOWN, NULL, 0);
+          sbcState = SBC_ST_POWERING_OFF;
+          poweroffTransition = currTime + 20000;
+          break;
+      }
     }
     
     connected = true;

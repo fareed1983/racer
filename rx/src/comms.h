@@ -15,7 +15,7 @@
 #define TX_RX_CMD_SIMPLE_CTRL     'C'
 #define TX_RX_CMD_DIRECTION_CTRL  'c'
 #define TX_RX_CMD_START_SBC       'S'
-#define RX_TX_CMD_SHUTDOWN_SBC    's'
+#define TX_RX_CMD_SHUTDOWN_SBC    's'
 
 // Radio RX->TX
 #define TX_RX_EVT_STATE_CHANGE    'T'

@@ -334,14 +334,24 @@ void loop() {
     display.print(str1);
 
 
-    if (sc.throttle != cth || sc.steering != cst || lastCmd + 100 < ms || swb) {
-      sc.throttle  = cth;
-      sc.steering  = cst;
-     //cmd.raspToggle = swb;
-      buf[0] = TX_RX_CMD_SIMPLE_CTRL;
-      memcpy(buf + 1, &sc, sizeof(sc));
 
-      if (!rf69_manager.sendtoWait((uint8_t *)buf, sizeof(txRxDirectionCtrl_t) + 1, RX_ADDR)) {
+
+    if (sc.throttle != cth || sc.steering != cst || lastCmd + 100 < ms || swb ) {
+      uint8_t len; 
+
+      if (swb) { // TODO put this behind a menu. In menu mode, stop sending ctrl cmds
+        buf[0] = TX_RX_CMD_START_SBC;
+        len = 1;
+      } else {
+        sc.throttle  = cth;
+        sc.steering  = cst;
+      //cmd.raspToggle = swb;
+        buf[0] = TX_RX_CMD_SIMPLE_CTRL;
+        memcpy(buf + 1, &sc, sizeof(sc));
+        len = sizeof(txRxDirectionCtrl_t) + 1;
+      }
+
+      if (!rf69_manager.sendtoWait((uint8_t *)buf, len, RX_ADDR)) {
         if (txFailCount == 5) {
           spkr = SPKR_ITER;
           connState = FAIL;
