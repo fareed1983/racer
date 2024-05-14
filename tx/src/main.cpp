@@ -56,10 +56,10 @@ typedef struct {
   float average = 0;
 } reading_t;
 
-#define REV_TRANS_CNT 8 // How many iterations with switch pressed to change reverse state
+#define SW_TRANS_CNT 8 // How many iterations with switch pressed to change reverse state
 reading_t rTh, rVx, rVy;
 
-int prevSteer = 0, prevThrottle = 0, cenVx = 0, cenVy = 0, prevRev = false, rev = false, revTrans = REV_TRANS_CNT, lastCmd = 0, txFailCount = 0;
+int prevSteer = 0, prevThrottle = 0, cenVx = 0, cenVy = 0, prevRev = false, rev = false, swaTrans = SW_TRANS_CNT, swbTrans = SW_TRANS_CNT, revTrans = SW_TRANS_CNT, lastCmd = 0, txFailCount = 0;
 uint8_t spkr = 0;
 
 txRxSimpleCtrl_t sc;
@@ -174,7 +174,7 @@ void setup() {
   display.setTextSize(2);
   display.println("Racer TX");
   display.setTextSize(1);
-  display.println("v0.1");
+  display.println("v1.0");
   display.println(str1);
   display.display();
   
@@ -196,7 +196,7 @@ void loop() {
   unsigned long sp = 0;
 
   if (reading > 15) reading = 15;
-  if (revTrans < REV_TRANS_CNT) reading = 0; // allow cooldown when transitioning reverse state
+  if (revTrans < SW_TRANS_CNT) reading = 0; // allow cooldown when transitioning reverse state
 
   reading = addReading(&rTh, reading);
   
@@ -232,7 +232,9 @@ void loop() {
         rgbby = 0b00100000;
     }
 
-    if (rev) rgbby |= 0b00000100;
+    //if (rev) rgbby |= 0b00000100;
+    if (rev) rgbby |= 0b00000010;
+
     
     digitalWrite(PIN_LATCH, LOW);
     shiftOut(PIN_DATA, PIN_CLK, MSBFIRST, (0b11111110 & (sp >> 2)) | ((spkr > 1) ? 1 : 0));
@@ -299,6 +301,24 @@ void loop() {
   } else if (cenVx) {
     display.clearDisplay();
 
+    if (swa) {
+      swaTrans --;
+      if (swaTrans) {
+        swa = 0;
+      }
+    } else {
+      swaTrans = SW_TRANS_CNT;
+    }
+
+    if (swb) {
+      swbTrans --;
+      if (swbTrans) {
+        swb = 0;
+      }
+    } else {
+      swbTrans = SW_TRANS_CNT;
+    }
+
     if (vsw) {
       revTrans --;
       if (!revTrans) {
@@ -306,7 +326,7 @@ void loop() {
         spkr = SPKR_ITER;
       }
     } else {
-      revTrans = REV_TRANS_CNT;
+      revTrans = SW_TRANS_CNT;
     }
 
     int cth, cst;
@@ -333,9 +353,6 @@ void loop() {
     display.setCursor(0, 35);
     display.print(str1);
 
-
-
-
     if (sc.throttle != cth || sc.steering != cst || lastCmd + 100 < ms || swb ) {
       uint8_t len; 
 
@@ -344,6 +361,8 @@ void loop() {
         len = 1;
       } else {
         sc.throttle  = cth;
+        if (sc.throttle > 0) sc.throttle = 5.770192 + 0.5965303*sc.throttle - 0.003104685*pow(sc.throttle,2);
+
         sc.steering  = cst;
       //cmd.raspToggle = swb;
         buf[0] = TX_RX_CMD_SIMPLE_CTRL;
