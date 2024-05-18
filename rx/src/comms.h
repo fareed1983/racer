@@ -56,7 +56,8 @@ typedef struct {
 
 typedef struct {
   int16_t throttle;
-  float angle;
+  int16_t angle;
+  int8_t magnitude;
 } txRxDirectionCtrl_t;
 
 #define START_SEQ_LEN 4

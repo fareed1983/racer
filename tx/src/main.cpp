@@ -9,6 +9,7 @@
 
 #include <IRremote.hpp>
 
+#include <math.h>
 #include "comms.h"
 
 #define PIN_CLK A1
@@ -48,6 +49,7 @@ int sensorValue = 0, a;
 float reading;
 
 enum { NOS, INIT, FAIL, CONN, TRX } connState, prevConnState;
+enum { SIMPLE, DIRECTION } cmdMode;
 
 typedef struct {
   float readings[WINDOW_SIZE];
@@ -59,10 +61,11 @@ typedef struct {
 #define SW_TRANS_CNT 8 // How many iterations with switch pressed to change reverse state
 reading_t rTh, rVx, rVy;
 
-int prevSteer = 0, prevThrottle = 0, cenVx = 0, cenVy = 0, prevRev = false, rev = false, swaTrans = SW_TRANS_CNT, swbTrans = SW_TRANS_CNT, revTrans = SW_TRANS_CNT, lastCmd = 0, txFailCount = 0;
+int prevSteer = 0, prevThrottle = 0, cenVx = 0, cenVy = 0, thrMin = 0, prevRev = false, rev = false, swaTrans = SW_TRANS_CNT, swbTrans = SW_TRANS_CNT, revTrans = SW_TRANS_CNT, lastCmd = 0, txFailCount = 0;
 uint8_t spkr = 0;
 
 txRxSimpleCtrl_t sc;
+txRxDirectionCtrl_t sd;
 
 // Initialize the readings array to 0
 void initReadings(reading_t *r) {
@@ -180,14 +183,25 @@ void setup() {
   
   IrReceiver.begin(PIN_IR_RCV, ENABLE_LED_FEEDBACK);
 
-  delay(500);
+  cmdMode = SIMPLE;
+
+  for (int a = 0; a < 20; a++) {
+    cenVx += analogRead(PIN_VRX);
+    cenVy += analogRead(PIN_VRY);
+    thrMin += analogRead(PIN_FRC);
+    delay(10);
+  }
+
+  cenVx /= 20;
+  cenVy /= 20;
+  thrMin /= 20;
 }
 
 
 void loop() {
   unsigned long ms = millis();
 
-  sensorValue = analogRead(PIN_FRC);
+  sensorValue = analogRead(PIN_FRC);// - thrMin;
   reading = (pow(10, sensorValue / 1024.0) - 1.0) * 20.0;
   reading = (pow(10, reading / 200.0) - 1.0) * 20.0;
   reading = (pow(10, reading / 200.0) - 1.0) * 20.0;
@@ -232,7 +246,7 @@ void loop() {
         rgbby = 0b00100000;
     }
 
-    //if (rev) rgbby |= 0b00000100;
+    if (cmdMode == DIRECTION) rgbby |= 0b00000100;
     if (rev) rgbby |= 0b00000010;
 
     
@@ -247,6 +261,7 @@ void loop() {
     // Serial.print(sensorValue);
     // Serial.print(":");
     // Serial.println(sp);
+    
   }
 
   if (spkr) spkr--;
@@ -287,135 +302,169 @@ void loop() {
 
   prevRev = rev;
 
-  // The first time readIndex becomes zero
-  if (!cenVx && !rVx.readIndex) {
-    
-    cenVx = rVx.average;
-    cenVy = rVy.average;
 
-    display.setCursor(0, 10);
+  display.clearDisplay();
 
-    Serial.print("cenVx: ");
-    Serial.println(cenVx);
-
-  } else if (cenVx) {
-    display.clearDisplay();
-
-    if (swa) {
-      swaTrans --;
-      if (swaTrans) {
-        swa = 0;
-      }
+  // Blue button
+  if (swa) {
+    swaTrans --;
+    if (swaTrans) {
+      swa = 0;
     } else {
-      swaTrans = SW_TRANS_CNT;
+      if (cmdMode == SIMPLE) cmdMode = DIRECTION; else cmdMode = SIMPLE;
+      spkr = SPKR_ITER;
     }
-
-    if (swb) {
-      swbTrans --;
-      if (swbTrans) {
-        swb = 0;
-      }
-    } else {
-      swbTrans = SW_TRANS_CNT;
-    }
-
-    if (vsw) {
-      revTrans --;
-      if (!revTrans) {
-        rev = !rev;
-        spkr = SPKR_ITER;
-      }
-    } else {
-      revTrans = SW_TRANS_CNT;
-    }
-
-    int cth, cst;
-
-    cth = (rTh.average * 10.0);
-    if (cth > 100) cth = 100;
-    if (rev) cth *= -1;
-
-    cst = (cenVx - vrx) / -5.12;
-    
-    sprintf(str1, "S:%d", cst);
-    display.setCursor(0, 25);
-    display.print(str1);
-
-    sprintf(str1, "y:%d", vry);
-    display.setCursor(45, 25);
-    display.print(str1);
-
-    sprintf(str1, "s:%d", vsw);
-    display.setCursor(90, 25);
-    display.print(str1);
-
-    sprintf(str1, "T:%d", cth);
-    display.setCursor(0, 35);
-    display.print(str1);
-
-    if (sc.throttle != cth || sc.steering != cst || lastCmd + 100 < ms || swb ) {
-      uint8_t len; 
-
-      if (swb) { // TODO put this behind a menu. In menu mode, stop sending ctrl cmds
-        buf[0] = TX_RX_CMD_START_SBC;
-        len = 1;
-      } else {
-        sc.throttle  = cth;
-        if (sc.throttle > 0) sc.throttle = 5.770192 + 0.5965303*sc.throttle - 0.003104685*pow(sc.throttle,2);
-
-        sc.steering  = cst;
-      //cmd.raspToggle = swb;
-        buf[0] = TX_RX_CMD_SIMPLE_CTRL;
-        memcpy(buf + 1, &sc, sizeof(sc));
-        len = sizeof(txRxDirectionCtrl_t) + 1;
-      }
-
-      if (!rf69_manager.sendtoWait((uint8_t *)buf, len, RX_ADDR)) {
-        if (txFailCount == 5) {
-          spkr = SPKR_ITER;
-          connState = FAIL;
-        }
-        txFailCount ++;
-      } else {
-        if (connState == FAIL) spkr = SPKR_ITER;
-        connState = TRX;
-        txFailCount = 0;
-      }
-
-      lastCmd = ms;
-    } 
-    
-    if (connState == TRX && lastCmd + 100 < ms) connState = CONN;
-
-    display.setCursor(90, 35);
-    sprintf(str1, "A:%d", connState);
-    display.print(str1);
-
-    display.setCursor(0, 45);
-    sprintf(str1, "D:%c", irCmd);
-    display.print(str1);
-  
-    float measuredvbat = analogRead(PIN_VBAT);
-    measuredvbat *= 2;    // we divided by 2, so multiply back
-    measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
-    measuredvbat /= 1024; // convert to voltage
-    display.setCursor(45, 35);
-    sprintf(str1, "V:%.02f", measuredvbat);
-    display.print(str1);
-
-    sprintf(str1, "A:%d", swa);
-    display.setCursor(45, 45);
-    display.print(str1);
-
-    sprintf(str1, "B:%d", swb);
-    display.setCursor(90, 45);
-    display.print(str1);
-
-    display.setCursor(0, 0);
-    display.print("TX DBG");
-
-    display.display();
+  } else {
+    swaTrans = SW_TRANS_CNT;
   }
+
+  // Red button
+  if (swb) {
+    swbTrans --;
+    if (swbTrans) {
+      swb = 0;
+    } else {
+      spkr = SPKR_ITER;
+    }
+  } else {
+    swbTrans = SW_TRANS_CNT;
+  }
+
+  // Rev button
+  if (vsw) {
+    revTrans --;
+    if (!revTrans) {
+      rev = !rev;
+      spkr = SPKR_ITER;
+    }
+  } else {
+    revTrans = SW_TRANS_CNT;
+  }
+
+  int cth, cst;
+  float cang;
+
+  cth = (rTh.average * 10.0);
+  if (cth > 100) cth = 100;
+
+  int dx = cenVx - vrx;
+  int dy = cenVy - vry;
+
+  sprintf(str1, "x:%d", dx);
+  display.setCursor(45, 45);
+  display.print(str1);
+
+  sprintf(str1, "y:%d", dy);
+  display.setCursor(90, 45);
+  display.print(str1);
+
+  if (cmdMode == SIMPLE) {
+    cst = dx / -5.12;
+  } else {
+    cang = atan2f(dy, dx) * (180.0 / M_PI);
+    if (cang < 0) cang += 360.0;
+    cst = sqrt(pow(dx, 2) + pow(dy, 2)) / 5.12;
+    if (cst > 100) cst = 100; // TODO figure this out
+
+    sprintf(str1, "N:%.0f", cang );
+    display.setCursor(0, 55);
+    display.print(str1);
+  }
+
+  if (cmdMode == SIMPLE || rev) cth = 0.5965303*cth - 0.003104685 * pow(cth,2);
+
+  if (rev) cth *= -1;
+
+  sprintf(str1, "T:%d", cth);
+  display.setCursor(0, 35);
+  display.print(str1);
+  
+  sprintf(str1, "S:%d", cst);
+  display.setCursor(0, 45);
+  display.print(str1);
+
+  if (swb || lastCmd + 100 < ms 
+    || (cmdMode == SIMPLE && (sc.throttle != cth || sc.steering != cst ))
+    || (cmdMode == DIRECTION && (sd.throttle != cth || sd.angle != cang || sd.magnitude != cst))
+  ) {
+    uint8_t len; 
+
+    if (swb) { // TODO put this behind a menu. In menu mode, stop sending ctrl cmds
+      buf[0] = TX_RX_CMD_START_SBC;
+      len = 1;
+    } else {
+
+      switch (cmdMode) {
+        case SIMPLE:
+          sc.throttle = cth;
+          sc.steering = cst;
+
+          buf[0] = TX_RX_CMD_SIMPLE_CTRL;
+          memcpy(buf + 1, &sc, sizeof(txRxSimpleCtrl_t));
+          len = sizeof(txRxSimpleCtrl_t) + 1;
+          break;
+
+        case DIRECTION:
+          sd.throttle = cth;
+          sd.angle = cang;
+          sd.magnitude = cst;
+
+          buf[0] = TX_RX_CMD_DIRECTION_CTRL;
+          memcpy(buf + 1, &sd, sizeof(sd));
+          len = sizeof(txRxDirectionCtrl_t) + 1;
+          break;
+      }
+    }
+
+    if (!rf69_manager.sendtoWait((uint8_t *)buf, len, RX_ADDR)) {
+      if (txFailCount == 5) {
+        spkr = SPKR_ITER;
+        connState = FAIL;
+      }
+      txFailCount ++;
+    } else {
+      if (connState == FAIL) spkr = SPKR_ITER;
+      connState = TRX;
+      txFailCount = 0;
+    }
+
+    lastCmd = ms;
+  } 
+  
+  if (connState == TRX && lastCmd + 100 < ms) connState = CONN;
+
+  float measuredvbat = analogRead(PIN_VBAT);
+  measuredvbat *= 2;    // we divided by 2, so multiply back
+  measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
+  measuredvbat /= 1024; // convert to voltage
+  display.setCursor(45, 35);
+  sprintf(str1, "V:%.01f", measuredvbat);
+  display.print(str1);
+
+  display.setCursor(90, 35);
+  sprintf(str1, "C:%d", connState);
+  display.print(str1);
+
+  // display.setCursor(0, 45);
+  // sprintf(str1, "D:%c", irCmd);
+  // display.print(str1);
+
+  sprintf(str1, "R:%d", vsw);
+  display.setCursor(0, 25);
+  display.print(str1);
+
+  sprintf(str1, "A:%d", swa);
+  display.setCursor(45, 25);
+  display.print(str1);
+
+  sprintf(str1, "B:%d", swb);
+  display.setCursor(90, 25);
+  display.print(str1);
+
+  display.setCursor(0, 0);
+  display.print("TX DBG");
+
+  display.display();
    
   delay(10);
 }

@@ -99,11 +99,12 @@ Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 int iri = 0;
 uint16_t dists[4] = {0, 0, 0, 0}, prevSs = SER_MID, prevEs = ESC_MID, distFront, ultraIdx = 0;
 float prevBattV = 0, lastYaw = 0;
-unsigned long nextSec = 0, poweroffTransition = 0;
+unsigned long nextSec = 0, poweroffTransition = 0, lastIter = 0;
 bool connected = false;
 char sbcState = SBC_ST_OFF;
 char buf[255] = {0};
 senData_t sd;
+float yawErr = 0;
 
 // struct {
 //   IRsend *sender;
@@ -119,6 +120,7 @@ Ultrasonic ultras[4]={
 };	
 
 bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen);
+bool upd0 = true, upd1 = true;
 
 void setup() {
   // irs[0] = { sender: new IRsend(), pin: PIN_IR_BK, cmd: 'b' };
@@ -219,9 +221,13 @@ void setup() {
     Serial.println("done\n");
 
   mpu.begin();
-  mpu.calcOffsets(true,true); // gyro and accelero
+  mpu.calcOffsets(true, true); // gyro and accelero
 
+  mpu.update();
   delay(2000);
+  yawErr = mpu.getAngleZ();// / 1000;
+  mpu.update();
+
   lcd.clear();
   lcd.setCursor(0, 1);
   lcd.print("No cmd!         ");
@@ -260,9 +266,10 @@ void setup() {
   Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println(" uT");  
   Serial.println("------------------------------------");
   Serial.println("");
+
+  lastIter = millis();
 }
 
-bool upd0 = true, upd1 = true;
 
 void loop() {
 
@@ -284,6 +291,10 @@ void loop() {
   if (rf69_manager.recvfromAckTimeout((uint8_t *)&buf, &len, 150, &from)) {
     if (*buf == TX_RX_CMD_DIRECTION_CTRL) {
       // Populate the simpCtrl and rest is the same as SIMPLE_CTRL
+      txRxDirectionCtrl_t dc;
+      memcpy(&dc, buf + 1, sizeof(txRxDirectionCtrl_t));
+      sc.throttle = dc.throttle;
+      sc.steering = sin(((dc.angle - 90) - lastYaw) * (M_PI / 180.0)) * dc.magnitude;
     }
     //Serial.printf("Got cmd %c\n", *((char *)buf));
     
@@ -298,7 +309,6 @@ void loop() {
 
         ss = map(sc.steering, -100, 100, SER_MIN, SER_MAX);
 
-        if (sc.throttle < 1) sc.throttle /= 2;
         es = map(sc.throttle, -100, 100, ESC_MIN, ESC_MAX);
 
         if (distFront < DANGER_DIST && sc.throttle > 0) {
@@ -398,17 +408,9 @@ void loop() {
 
   mpu.update();
   v = mpu.getAngleZ();
-  v = int(v * 10) / 10.0;
-
-  if (v != lastYaw) {
-    lastYaw = v;
-    upd0 = true;
-  }
-
-  if (nextSec < currTime) {
-    upd0 = true;
-  }
-
+  if (abs(v - lastYaw) > 0.1) upd0 = true;  
+  lastYaw = v;
+  
   uint8_t seqMatch = 0;
   uint16_t payloadLen = 0;
   char b;
@@ -484,6 +486,8 @@ void loop() {
   }
 
   if (prevSbcState != sbcState) upd1 = true;
+  
+  currTime = millis();
 
   if (upd0) {
     lcd.setCursor(0, 0);
@@ -494,7 +498,7 @@ void loop() {
   if (upd1) {
     lcd.setCursor(0, 1);
     if (connected) {
-      sprintf(buf, "%c T:%03d S:%03d", sbcState, sc.throttle, sc.steering);
+      sprintf(buf, "%c T:%03d S:%03d   ", sbcState, sc.throttle, sc.steering);
     } else {
         sprintf(buf, "%c DISCO         ", sbcState);
     }
@@ -502,6 +506,8 @@ void loop() {
   }
 
   if (nextSec < currTime) {
+    upd0 = true;
+    lastYaw -= yawErr;
     //Serial.println("Writing ping");
     ultraIdx ++;
     if (ultraIdx == ULTRAS_TOT) ultraIdx = 0;
@@ -511,7 +517,6 @@ void loop() {
     }
 
   }
-
 
     // sensors_event_t event; 
     // mag.getEvent(&event);
@@ -604,7 +609,6 @@ void loop() {
 
 
   //FastLED.show();
-
 }
 
 bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen) {
