@@ -141,6 +141,7 @@ def main(input_dirs):
     # compile the model
     model.compile(optimizer='adam', loss='mean_squared_error')
 
+    model.summary()
     # define earlystopping callback
     early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
     
