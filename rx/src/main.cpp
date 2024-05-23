@@ -71,8 +71,8 @@
 #define SER_IDX 15
 #define ESC_IDX 14
 
-#define SERUS(pulseWidth)  pwm.writeMicroseconds(SER_IDX, pulseWidth);
-#define ESCUS(pulseWidth)  pwm.writeMicroseconds(ESC_IDX, pulseWidth);
+#define SERUS(pulseWidth) if (sbcState != SBC_ST_PROG_MASTER) pwm.writeMicroseconds(SER_IDX, pulseWidth);
+#define ESCUS(pulseWidth) if (sbcState != SBC_ST_PROG_MASTER) pwm.writeMicroseconds(ESC_IDX, pulseWidth);
 
 #define NUM_LEDS 8
 
@@ -125,12 +125,10 @@ bool upd0 = true, upd1 = true;
 void setup() {
   // irs[0] = { sender: new IRsend(), pin: PIN_IR_BK, cmd: 'b' };
   // irs[1] = { sender: new IRsend(), pin: PIN_IR_FR, cmd: 'f' };
-
   
   Serial.begin(115200);
   Serial1.begin(115200);
   Serial1.setTimeout(20);
-
 
   pwm.begin();
   pwm.setOscillatorFrequency(27000000);
@@ -225,7 +223,7 @@ void setup() {
 
   mpu.update();
   delay(2000);
-  yawErr = mpu.getAngleZ();// / 1000;
+  yawErr = mpu.getAngleZ() / 2;// / 1000;
   mpu.update();
 
   lcd.clear();
@@ -269,7 +267,6 @@ void setup() {
 
   lastIter = millis();
 }
-
 
 void loop() {
 
@@ -482,6 +479,21 @@ void loop() {
         Serial.println("Got PROG started");
         sbcState = SBC_ST_PROG_PASSIVE;
         break;
+      
+      case SBC_RX_CMD_MASTER:
+        Serial.println("Got master mode");
+        sbcState = SBC_ST_PROG_MASTER;
+        break;
+      
+      case SBC_RX_CMD_YIELD:
+        Serial.println("Got prog yield");
+        sbcState = SBC_ST_PROG_PASSIVE;
+        break;
+
+      case SBC_RX_EVT_PROG_EXIT:
+        Serial.println("Got prog exit");
+        sbcState = SBC_ST_READY;
+        break;
     }
   }
 
@@ -489,13 +501,13 @@ void loop() {
   
   currTime = millis();
 
-  if (upd0) {
+  if (upd0 && sbcState != SBC_ST_PROG_MASTER) {
     lcd.setCursor(0, 0);
     sprintf(buf, "%d:%03d V%.01f Y%.01f  ", ultraIdx, dists[ultraIdx], prevBattV, lastYaw);
     lcd.print(buf);
   }
 
-  if (upd1) {
+  if (upd1 && sbcState != SBC_ST_PROG_MASTER) {
     lcd.setCursor(0, 1);
     if (connected) {
       sprintf(buf, "%c T:%03d S:%03d   ", sbcState, sc.throttle, sc.steering);
@@ -518,38 +530,7 @@ void loop() {
 
   }
 
-    // sensors_event_t event; 
-    // mag.getEvent(&event);
-  
-    // /* Display the results (magnetic vector values are in micro-Tesla (uT)) */
-    // Serial.print("X: "); Serial.print(event.magnetic.x); Serial.print("  ");
-    // Serial.print("Y: "); Serial.print(event.magnetic.y); Serial.print("  ");
-    // Serial.print("Z: "); Serial.print(event.magnetic.z); Serial.print("  ");Serial.println("uT");
-
-    // // Hold the module so that Z is pointing 'up' and you can measure the heading with x&y
-    // // Calculate heading when the magnetometer is level, then correct for signs of axis.
-    // float heading = atan2(event.magnetic.y, event.magnetic.x);
-    
-    // // Once you have your heading, you must then add your 'Declination Angle', which is the 'Error' of the magnetic field in your location.
-    // // Find yours here: http://www.magnetic-declination.com/
-    // // Mine is: -13* 2' W, which is ~13 Degrees, or (which we need) 0.22 radians
-    // // If you cannot find your Declination, comment out these two lines, your compass will be slightly off.
-    // float declinationAngle = 0.22;
-    // heading += declinationAngle;
-    
-    // // Correct for when signs are reversed.
-    // if(heading < 0)
-    //   heading += 2*PI;
-      
-    // // Check for wrap due to addition of declination.
-    // if(heading > 2*PI)
-    //   heading -= 2*PI;
-    
-    // // Convert radians to degrees for readability.
-    // float headingDegrees = heading * 180/M_PI; 
-  //delay(1000);
-    // Serial.print("Heading (degrees): "); Serial.println(headingDegrees);
-  if (sbcState == SBC_ST_PROG_PASSIVE || sbcState == SBC_ST_PROG_MASTER) {
+  if (sbcState == SBC_ST_PROG_PASSIVE) {
     sd = {
       throttle: sc.throttle,
       steering: sc.steering,
@@ -562,51 +543,11 @@ void loop() {
       gyroZ: mpu.getGyroZ()
     };
 
-
     Wire.beginTransmission(I2C_SLAVE_ADDR);
     Wire.write(RX_SBC_EVT_SEN_DATA);
     Wire.write((byte *)&sd, sizeof(senData_t));
     Wire.endTransmission(I2C_SLAVE_ADDR);
-
-    // if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
-    //   Serial.println("Could not write");
-    // }
-    //     if (!writeCmd(TX_SBC_CMD_PING, NULL, 0)) {
-    //   Serial.println("Could not write");
-    // }
-    // Serial.printf("\tthrottle: %d\n", sd.throttle);
-    // Serial.printf("\tsteering: %d\n", sd.steering);
-    // Serial.printf("\tdists: %d %d %d\n", sd.dists[0], sd.dists[1], sd.dists[2]);
-    // Serial.printf("\taccX: %.2f, accY: %.2f, accZ: %.2f\n", sd.accX, sd.accY, sd.accZ);
-    // Serial.printf("\tgyroX: %.2f, gyroY: %.2f, gryoZ: %.2f\n", sd.gyroX, sd.gyroY, sd.gyroZ);
-    // if (!writeCmd(TX_SBC_EVT_SEN_DATA, (uint8_t *)&sd, sizeof(sd))) {
-    //   Serial.println("Error sending sensor data");
-    // }
   }
-
-
-
-  // static unsigned long lastPrint = 0;
-  // if(millis() - lastPrint > 1000){ // print data every second
-  //   Serial.print(F("TEMPERATURE: "));Serial.println(mpu.getTemp());
-  //   Serial.print(F("ACCELERO  X: "));Serial.print(mpu.getAccX());
-  //   Serial.print("\tY: ");Serial.print(mpu.getAccY());
-  //   Serial.print("\tZ: ");Serial.println(mpu.getAccZ());
-  
-  //   Serial.print(F("GYRO      X: "));Serial.print(mpu.getGyroX());
-  //   Serial.print("\tY: ");Serial.print(mpu.getGyroY());
-  //   Serial.print("\tZ: ");Serial.println(mpu.getGyroZ());
-  
-  //   Serial.print(F("ACC ANGLE X: "));Serial.print(mpu.getAccAngleX());
-  //   Serial.print("\tY: ");Serial.println(mpu.getAccAngleY());
-    
-  //   Serial.print(F("ANGLE     X: "));Serial.print(mpu.getAngleX());
-  //   Serial.print("\tY: ");Serial.print(mpu.getAngleY());
-  //   Serial.print("\tZ: ");Serial.println(mpu.getAngleZ());
-  //   Serial.println(F("=====================================================\n"));
-  //   lastPrint = millis();
-  // }
-
 
   //FastLED.show();
 }

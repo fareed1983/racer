@@ -14,6 +14,7 @@
 #define TX_RX_CMD_RST_BEARING     'B'
 #define TX_RX_CMD_SIMPLE_CTRL     'C'
 #define TX_RX_CMD_DIRECTION_CTRL  'c'
+#define TX_RX_CMD_RESET_DIRECTION 'R'
 #define TX_RX_CMD_START_SBC       'S'
 #define TX_RX_CMD_SHUTDOWN_SBC    's'
 

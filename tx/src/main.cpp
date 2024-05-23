@@ -371,8 +371,9 @@ void loop() {
     display.print(str1);
   }
 
-  if (cmdMode == SIMPLE || rev) cth = 0.5965303*cth - 0.003104685 * pow(cth,2);
-
+  ///*if (cmdMode == SIMPLE || rev)*/ cth = 1.011883*cth - 0.00516184 * pow(cth,2);
+  cth *= .4;
+  
   if (rev) cth *= -1;
 
   sprintf(str1, "T:%d", cth);

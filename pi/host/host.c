@@ -10,6 +10,7 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <getopt.h>
 
 #include "comms.h"
 #include "uart.h"
@@ -38,10 +39,33 @@ typedef struct {
 void* uartReader(void* arg);
 void* i2cReader(void* arg);
 
-
 int main(int argc, char **argv)
 {
     printf("Pi host v0.1\n\n");
+
+    int opt, optionIdx = 0;
+    bool startMaster;
+
+    static struct option longOptions[] = {
+        {"startmode-master", no_argument, 0, 'm'},
+        {"startmode-passive", no_argument, 0, 'p'},
+        {0, 0, 0, 0}
+    };
+
+    while((opt = getopt_long(argc, argv, "ms", longOptions, &optionIdx)) != -1) {
+        switch (opt) {
+            case 'm':
+                printf("Start mode: Master\n");
+                startMaster = true;
+                break;
+            case 'n':
+                printf("Start mode: Passive\n");
+                break;
+            default:
+                fprintf(stderr, "Usage: %s [--startmode-master | -m] [--startmode-passive | -p]\n", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
 
     int serialFd;
 
@@ -95,22 +119,30 @@ int main(int argc, char **argv)
         printf("\n");
     }
 
-    if (!uartWriteCmd(serialFd, SBC_TX_EVT_RUNNING, NULL, 0))
+    if (!uartWriteCmd(serialFd, SBC_RX_EVT_RUNNING, NULL, 0))
     {
         fprintf(stderr, "Error writing EVT_RUNNING\n");
         return EXIT_FAILURE;
     }
 
-    sleep(3);
+    sleep(1);
 
-    if (!uartWriteCmd(serialFd, SBC_TX_EVT_PROG_STARTED, NULL, 0))
+    if (!uartWriteCmd(serialFd, SBC_RX_EVT_PROG_STARTED, NULL, 0))
     {
         fprintf(stderr, "Error writing EVT_PROG_STARTED\n");
         return EXIT_FAILURE;
     }
 
-    pthread_join(uartThread, NULL);
+    sleep(1);
+    if (startMaster) {
+        if (!uartWriteCmd(serialFd, SBC_RX_CMD_MASTER, NULL, 0))
+        {
+            fprintf(stderr, "Error writing SBC_RX_CMD_MASTER\n");
+            return EXIT_FAILURE;
+        }
+    }
 
+    pthread_join(uartThread, NULL);
 }
 
 void* uartReader(void* arg) {
@@ -132,9 +164,9 @@ void* uartReader(void* arg) {
 
         switch (*buf)
         {
-        case TX_SBC_CMD_PING:
+        case RX_SBC_CMD_PING:
             printf("Got ping\n");
-            if (uartWriteCmd(serialFd, SBC_TX_EVT_PONG, NULL, 0))
+            if (uartWriteCmd(serialFd, SBC_RX_EVT_PONG, NULL, 0))
             {
                 printf("Wrote pong\n");
             }
@@ -148,12 +180,12 @@ void* uartReader(void* arg) {
 
             break;
 
-        case TX_SBC_CMD_SHUTDOWN:
+        case RX_SBC_CMD_SHUTDOWN:
             printf("Got shutdown\n");
             system("sudo poweroff");
             break;
 
-        case TX_SBC_EVT_SEN_DATA:
+        case RX_SBC_EVT_SEN_DATA:
             printf("Got sen data on UART!!!\n");
             senData_t *sd = (senData_t *)(buf + 3);
             
@@ -188,7 +220,7 @@ void* i2cReader(void* arg) {
             continue;
         }
         switch (*buf) {
-            case TX_SBC_EVT_SEN_DATA:
+            case RX_SBC_EVT_SEN_DATA:
                 senData_t *sd = (senData_t *)(buf + 1);
                 printf("\tthrottle: %d\n", sd->throttle);
                 printf("\tsteering: %d\n", sd->steering);
