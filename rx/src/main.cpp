@@ -482,11 +482,17 @@ void loop() {
       
       case SBC_RX_CMD_MASTER:
         Serial.println("Got master mode");
+        lcd.clear();
+        lcd.setCursor(0, 1);
+        lcd.print("MASTER MODE");
         sbcState = SBC_ST_PROG_MASTER;
         break;
       
       case SBC_RX_CMD_YIELD:
         Serial.println("Got prog yield");
+        lcd.clear();
+        lcd.setCursor(0, 1);
+        lcd.print("YIELD");
         sbcState = SBC_ST_PROG_PASSIVE;
         break;
 
