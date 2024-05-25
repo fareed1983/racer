@@ -1,5 +1,7 @@
 #include <pigpio.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define I2C_SLAVE_ADDRESS   0x03
@@ -7,7 +9,11 @@ bsc_xfer_t xfer; // Struct to control data flow
 int getControlBits(int, bool);
 
 bool slaveInit() {
-    gpioInitialise();
+    
+    if (gpioInitialise()<0) {
+        fprintf(stderr, "Error in gpioInitialize\n");
+        exit(1);
+    }
     // Close old device (if any)
     xfer.control = getControlBits(I2C_SLAVE_ADDRESS, false); // To avoid conflicts when restarting
     bscXfer(&xfer);
