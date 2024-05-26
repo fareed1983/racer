@@ -37,15 +37,11 @@ def drive_frame(image, interpreter, input_details, output_details, pwm):
             # Get the output tensor
             output_data = interpreter.get_tensor(output_details[0]['index'])
             throttle, steering = output_data[0]
-            throttle = int(throttle / 100.0)
-            steering = int(steering / 100.0)
+            throttle = int(throttle * 100.0)
+            steering = int(steering * 100.0)
 
-            throttle = np.clip(throttle, 0, 50)
+            throttle = np.clip(throttle, 20, 50)
             steering = np.clip(steering, -100, 100)
-
-
-            if (throttle < 20):
-                throttle = 20
 
             print(f"T:{throttle}, S: {steering}")
 
