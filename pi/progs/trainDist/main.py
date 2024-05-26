@@ -12,6 +12,8 @@ from picamera2.picamera2 import *
 # pip install opencv-python
 
 currTimeStamp = None
+prevTimeStamp = None
+ix = 1
 lock = threading.Lock()
 
 def get_time_stamp_from_ms(ms):
@@ -61,6 +63,7 @@ def read_sensor_data(output_folder):
                     }
                     sen_prog_data['timeMs']=get_time_stamp_from_ms(sen_prog_data['timeMs'])
                     with lock:
+                        idx = 0
                         currTimeStamp = sen_prog_data['timeMs']
                     #print(sen_prog_data)
                     out_file.write(binary_data)
@@ -85,6 +88,7 @@ def read_sensor_data(output_folder):
 
 def capture_images(output_folder):
 
+    global prevTimeStamp, ix 
 
     picam2 = Picamera2()
     
@@ -96,28 +100,26 @@ def capture_images(output_folder):
         while True:
             yuv = picam2.capture_array("lores")
             rgb = cv2.cvtColor(yuv, cv2.COLOR_YUV420p2RGB)
-
-            # Process image
-                  # Convert BGR to Grayscale
-            gray_image = cv2.cvtColor(rgb, cv2.COLOR_BGR2GRAY)
-            # blurred_image = cv2.bilateralFilter(gray_image, 9, 75, 75)  # Experiment with these parameters
-
-            # #blurred_image = cv2.GaussianBlur(gray_image, 5, 5), 0)
-            # edges = cv2.Canny(blurred_image, 40, 100, apertureSize=3)  # Adjusted thresholds and aperture size
-            # dialated_edges = cv2.dilate(edges, np.ones((3,3), np.uint8), iterations = 1)
-
+            
             with lock:
-                i = currTimeStamp
+                ts = currTimeStamp
 
-            if i == None:
-                i = get_time_stamp_from_ms(int(time.time() * 1000))
+            if prevTimeStamp is not None and prevTimeStamp == currTimeStamp:
+                ix += 1
+            else:
+                ix = 1
 
-            source_image_path = os.path.join(output_folder, f'source_image_{i}.jpg')
-            # processed_image_path = os.path.join(output_folder, f'processed_image_{i}.jpg')
-            # cv2.imwrite(processed_image_path, dialated_edges)
+            prevTimeStamp = currTimeStamp
+
+            if ts == None:
+                ts = get_time_stamp_from_ms(int(time.time() * 1000))
+                ix = 0
+
+            source_image_path = os.path.join(output_folder, f'source_image_{ts}_{ix:03d}.jpg')
+
             cv2.imwrite(source_image_path, rgb)
 
-            cv2.imshow("Processed Image", cv2.resize(gray_image, (0,0), fx=0.5, fy=0.5))
+            cv2.imshow("Saved Image", cv2.resize(rgb, (0,0), fx=0.5, fy=0.5))
             if cv2.waitKey(1) & 0xff == ord('q'):
                 break
     finally:
