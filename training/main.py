@@ -27,6 +27,10 @@ MaxPooling2D = tf.keras.layers.MaxPooling2D
 Flatten = tf.keras.layers.Flatten
 Dense = tf.keras.layers.Dense
 Dropout = tf.keras.layers.Dropout
+BatchNormalization = tf.keras.layers.BatchNormalization
+
+l2 = tf.keras.regularizers.l2
+Adam = tf.keras.optimizers.Adam
 EarlyStopping = tf.keras.callbacks.EarlyStopping
 
 import matplotlib.pyplot as plt
@@ -82,15 +86,20 @@ def preprocess_images(input_dir, sensor_data):
         steering = entry['steering']
 
         timestamp_str = get_time_stamp_from_ms(timestamp)
-        image_path = os.path.join(input_dir, f"source_image_{timestamp_str}.jpg")
+        idx = 1
+        while True:
+            image_path = os.path.join(input_dir, f"source_image_{timestamp_str}_{idx:03d}.jpg")
 
-        if (os.path.exists(image_path)):
+            if not os.path.exists(image_path):
+                break
+
             print(f"Preprocessing {image_path}. throttle={throttle}, steering={steering}")
             image = Image.open(image_path).convert('L') # open jpg and convert to grayscale
             image = image.resize((160, 120))
             image_array = np.array(image)
             data.append(image_array)
             labels.append([throttle, steering])
+            idx += 1
 
     data = np.array(data)
     labels = np.array(labels)
@@ -123,6 +132,26 @@ def main(input_dirs):
     x_train, x_test, y_train, y_test = train_test_split(all_data, all_labels, test_size=0.2, random_state = 42)
 
     # define the cnn model
+
+    model = Sequential([
+        Input(shape=(120, 160, 1)),
+        
+        Conv2D(24, (5, 5), strides=(2, 2), activation='relu'),
+        Conv2D(32, (5, 5), strides=(2, 2), activation='relu'),
+        Conv2D(64, (5, 5), strides=(2, 2), activation='relu'),
+        Conv2D(64, (3, 3), activation='relu'),
+        Conv2D(64, (3, 3), activation='relu'),
+        
+        Flatten(),
+        
+        Dense(100, activation='relu'),
+        Dropout(0.5),
+        Dense(50, activation='relu'),
+        Dropout(0.5),
+        Dense(10, activation='relu'),
+        Dense(2)  # Output for throttle and steering
+    ])
+
     # model = Sequential([
     #     Input(shape=(120, 160, 1)),
     #     Conv2D(32, (3, 3), activation='relu'),
@@ -139,34 +168,34 @@ def main(input_dirs):
     #     Dense(2) # output for throttle and steering
     # ])
 
-    model = Sequential([
-        Input(shape=(120, 160, 1)),
-        Conv2D(24, (3, 3), activation='relu'),
-        MaxPooling2D((2, 2)), 
-        Conv2D(36, (3, 3), activation='relu'),
-        MaxPooling2D((2, 2)),
-        Conv2D(48, (3, 3), activation='relu'),
-        MaxPooling2D((2, 2)),
-        Conv2D(64, (3, 3), activation='relu'),
-        MaxPooling2D((2, 2)),
-        Conv2D(64, (3, 3), activation='relu'),
-        MaxPooling2D((2, 2)),
-        Flatten(),
-        Dense(1164, activation='relu'),
-        Dense(100, activation='relu'),
-        Dense(50, activation='relu'),
-        Dense(2) # output for throttle and steering
-    ])
+    # model = Sequential([
+    #     Input(shape=(120, 160, 1)),
+    #     Conv2D(24, (3, 3), activation='relu'),
+    #     MaxPooling2D((2, 2)), 
+    #     Conv2D(36, (3, 3), activation='relu'),
+    #     MaxPooling2D((2, 2)),
+    #     Conv2D(48, (3, 3), activation='relu'),
+    #     MaxPooling2D((2, 2)),
+    #     Conv2D(64, (3, 3), activation='relu'),
+    #     MaxPooling2D((2, 2)),
+    #     Conv2D(64, (3, 3), activation='relu'),
+    #     MaxPooling2D((2, 2)),
+    #     Flatten(),
+    #     Dense(1164, activation='relu'),
+    #     Dense(100, activation='relu'),
+    #     Dense(50, activation='relu'),
+    #     Dense(2) # output for throttle and steering
+    # ])
 
     # compile the model
-    model.compile(optimizer='adam', loss='mean_squared_error')
+    model.compile(optimizer='adam', loss='mse')
 
     model.summary()
     # define earlystopping callback
     early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
     
     # train the model
-    history = model.fit(x_train, y_train, epochs=3, validation_data=(x_test, y_test), callbacks=[early_stopping])
+    history = model.fit(x_train, y_train, epochs=50, validation_data=(x_test, y_test), callbacks=[early_stopping])
 
     # # save the model
     model.save('self_drive_model.h5')
