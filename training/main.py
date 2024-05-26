@@ -97,6 +97,7 @@ def preprocess_images(input_dir, sensor_data):
 
     # Normalize the data
     data = data / 255.0
+    labels = labels / 100.0
 
     # Reshape data for the CNN input
     data = data.reshape(data.shape[0], 120, 160, 1)
@@ -122,19 +123,38 @@ def main(input_dirs):
     x_train, x_test, y_train, y_test = train_test_split(all_data, all_labels, test_size=0.2, random_state = 42)
 
     # define the cnn model
+    # model = Sequential([
+    #     Input(shape=(120, 160, 1)),
+    #     Conv2D(32, (3, 3), activation='relu'),
+    #     MaxPooling2D((2, 2)), 
+    #     Conv2D(64, (3, 3), activation='relu'),
+    #     MaxPooling2D((2, 2)),
+    #     Conv2D(128, (3, 3), activation='relu'),
+    #     MaxPooling2D((2, 2)),
+    #     Conv2D(256, (3, 3), activation='relu'),
+    #     MaxPooling2D((2, 2)),
+    #     Flatten(),
+    #     Dense(512, activation='relu'),
+    #     Dropout(0.5),
+    #     Dense(2) # output for throttle and steering
+    # ])
+
     model = Sequential([
         Input(shape=(120, 160, 1)),
-        Conv2D(32, (3, 3), activation='relu'),
+        Conv2D(24, (3, 3), activation='relu'),
         MaxPooling2D((2, 2)), 
+        Conv2D(36, (3, 3), activation='relu'),
+        MaxPooling2D((2, 2)),
+        Conv2D(48, (3, 3), activation='relu'),
+        MaxPooling2D((2, 2)),
         Conv2D(64, (3, 3), activation='relu'),
         MaxPooling2D((2, 2)),
-        Conv2D(128, (3, 3), activation='relu'),
-        MaxPooling2D((2, 2)),
-        Conv2D(256, (3, 3), activation='relu'),
+        Conv2D(64, (3, 3), activation='relu'),
         MaxPooling2D((2, 2)),
         Flatten(),
-        Dense(512, activation='relu'),
-        Dropout(0.5),
+        Dense(1164, activation='relu'),
+        Dense(100, activation='relu'),
+        Dense(50, activation='relu'),
         Dense(2) # output for throttle and steering
     ])
 
@@ -146,7 +166,7 @@ def main(input_dirs):
     early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
     
     # train the model
-    history = model.fit(x_train, y_train, epochs=50, validation_data=(x_test, y_test), callbacks=[early_stopping])
+    history = model.fit(x_train, y_train, epochs=3, validation_data=(x_test, y_test), callbacks=[early_stopping])
 
     # # save the model
     model.save('self_drive_model.h5')
@@ -175,6 +195,48 @@ def main(input_dirs):
     plt.ylabel('Loss')
     plt.legend(loc='upper right')
     plt.show()
+
+
+    # # Load the TFLite model and allocate tensors
+    # interpreter = tf.lite.Interpreter(model_content=tflite_model)
+    # interpreter.allocate_tensors()
+
+    # # Get input and output tensors
+    # input_details = interpreter.get_input_details()
+    # output_details = interpreter.get_output_details()
+    
+    # image_path = "/Users/fareed/Projects/cchs/training/2024-05-19-12-37-04/source_image_2024-05-19-12:40:57.914.jpg"
+    # image = Image.open(image_path).convert('L')
+    # gray_image = image.resize((160, 120))
+    # image_array = np.array(gray_image, dtype=np.float32)
+
+    # image_array /= 255.0
+
+    # # Expand dimensions to match model input
+    # sample_input = np.expand_dims(image_array, axis=0)  # Add batch dimension
+    # sample_input = np.expand_dims(sample_input, axis=-1)  # Add channel dimension
+
+
+    # # Test the TFLite model on a sample input
+    # input_shape = input_details[0]['shape']
+    # # sample_input = np.random.rand(*input_shape).astype(np.float32)
+
+    # # Perform inference with the TFLite model
+    # interpreter.set_tensor(input_details[0]['index'], sample_input)
+    # interpreter.invoke()
+    # tflite_output = interpreter.get_tensor(output_details[0]['index'])
+
+    # # Perform inference with the original Keras model for comparison
+    # keras_output = model.predict(sample_input)
+
+    # # Compare the outputs
+    # print("Keras model output:", keras_output)
+    # print("TFLite model output:", tflite_output)
+
+    # # Verify that the outputs are close
+    # np.testing.assert_allclose(keras_output, tflite_output, rtol=1e-5, atol=1e-5)
+    # print("Outputs are similar, conversion successful.")
+
 
 if __name__ == '__main__':
     import argparse

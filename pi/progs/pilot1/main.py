@@ -15,7 +15,9 @@ inference_times = []
 def drive_frame(image, interpreter, input_details, output_details, pwm):
             gray_image = image.resize((160, 120))
             image_array = np.array(gray_image, dtype=np.float32)
-                    
+            
+            image_array /= 255.0
+            
             # Expand dimensions to match model input
             input_data = np.expand_dims(image_array, axis=0)  # Add batch dimension
             input_data = np.expand_dims(input_data, axis=-1)  # Add channel dimension
