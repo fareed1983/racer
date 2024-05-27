@@ -89,7 +89,6 @@ def preprocess_images(input_dir, sensor_data):
         idx = 1
         while True:
             image_path = os.path.join(input_dir, f"source_image_{timestamp_str}_{idx:03d}.jpg")
-
             if not os.path.exists(image_path):
                 break
 
@@ -99,6 +98,12 @@ def preprocess_images(input_dir, sensor_data):
             image_array = np.array(image)
             data.append(image_array)
             labels.append([throttle, steering])
+
+            flipped_image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            flipped_image_array = np.array(flipped_image)
+            data.append(flipped_image_array)
+            labels.append([throttle, -steering])
+
             idx += 1
 
     data = np.array(data)
