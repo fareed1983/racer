@@ -1,10 +1,9 @@
-# python main.py ~/Projects/cchs/training/2024-05-14-10-09-15 ~/Projects/cchs/training/2024-05-14-10-15-32 ~/Projects/cchs/training/2024-05-19-10-16-09 ~/Projects/cchs/training/2024-05-19-10-41-25 ~/Projects/cchs/training/2024-05-19-12-37-04
 # toco --output_file=self_drive_model.tflite --keras_model_file=self_drive_model.h5
 # pip install -U tf_keras
 # python3.11 not 12
 # pip install tensorflow==2.15.1  
 # pip install keras==3.2.1
-
+# python main.py `find ~/Projects/cchs/training -type d -name "2024*"` 
 
 # OS contains functions such as reading files
 import os
@@ -76,8 +75,11 @@ def read_sensor_data(input_dir):
 
     return data
 
-def preprocess_images(input_dir, sensor_data):
-    data = []
+
+
+
+def gen_data_lists(input_dir, sensor_data):
+    paths = []
     labels = []
 
     for entry in sensor_data:
@@ -92,50 +94,111 @@ def preprocess_images(input_dir, sensor_data):
             if not os.path.exists(image_path):
                 break
 
-            print(f"Preprocessing {image_path}. throttle={throttle}, steering={steering}")
-            image = Image.open(image_path).convert('L') # open jpg and convert to grayscale
-            image = image.resize((160, 120))
-            image_array = np.array(image)
-            data.append(image_array)
+            paths.append(image_path)
             labels.append([throttle, steering])
 
-            flipped_image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            flipped_image_array = np.array(flipped_image)
-            data.append(flipped_image_array)
-            labels.append([throttle, -steering])
+            print(f"Adding {image_path}. throttle={throttle}, steering={steering}")
 
             idx += 1
 
-    data = np.array(data)
     labels = np.array(labels)
 
     # Normalize the data
-    data = data / 255.0
     labels = labels / 100.0
 
-    # Reshape data for the CNN input
-    data = data.reshape(data.shape[0], 120, 160, 1)
+    return paths, labels
 
-    return data, labels
+    
+            # image = Image.open(image_path).convert('L') # open jpg and convert to grayscale
+            # image = image.resize((160, 120))
+            # image_array = np.array(image)
+            # data.append(image_array)
 
+            # flipped_image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            # flipped_image_array = np.array(flipped_image)
+            # data.append(flipped_image_array)
+            # labels.append([throttle, -steering])
+
+            # data = data / 255.0
+        # data = data.reshape(data.shape[0], 120, 160, 1)
+class CustomDataGen(tf.keras.utils.Sequence):
+    def __init__(self, data, dim = (120, 160, 1), batch_size = 32, shuffle = True, **kwargs):
+        super().__init__(**kwargs)
+        self.data = data
+        self.dim = dim
+        self.batch_size = batch_size
+        self.indexes = np.arange(len(self.data))
+        self.shuffle = shuffle
+
+        self.on_epoch_end()
+
+    def __len__(self):
+        return int(np.floor(len(self.data) / self.batch_size))
+    
+    def on_epoch_end(self):
+        if (self.shuffle):
+            np.random.shuffle(self.indexes)
+
+    def __getitem__(self, index):
+        X = []
+        y = []
+
+        start_index = index * self.batch_size
+        end_index = (index + 1) * self.batch_size
+        batch_indexes = self.indexes[start_index:end_index]
+        
+        batch_data = [self.data[k] for k in batch_indexes]
+        for path, label in batch_data:
+            # Load and preprocess the image
+            # print(f"Loading {path}. throttle={label[0]}, steering={label[1]}")
+            image = Image.open(path).convert('L')  # open jpg and convert to grayscale
+            image = image.resize(self.dim[:2])
+            image_array = np.array(image)
+            image_array = image_array / 255.0  # Normalize the image
+
+            # Append original image data and label
+            X.append(image_array)
+            y.append(label)
+
+            # Data augmentation by flipping the image
+            flipped_image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            flipped_image_array = np.array(flipped_image)
+            flipped_image_array = flipped_image_array / 255.0
+
+            # Append flipped image data and modified label
+            X.append(flipped_image_array)
+            y.append([label[0], -label[1]])
+
+        X = np.array(X)
+        y = np.array(y)
+
+        # Reshape data for the CNN input
+        X = X.reshape(X.shape[0], *self.dim)
+
+        return X, y
+    
 
 def main(input_dirs):
-    all_data = []
+    
+    all_paths = []
     all_labels = []
 
     for input_dir in input_dirs:
         sensor_data = read_sensor_data(input_dir)
-        data, labels = preprocess_images(input_dir, sensor_data)
-        all_data.append(data)
+        paths, labels = gen_data_lists(input_dir, sensor_data)
+        all_paths.append(paths)
         all_labels.append(labels)
 
     # combile multiple arrays into single arrays
-    all_data = np.concatenate(all_data, axis=0)
+    all_paths = np.concatenate(all_paths, axis=0)
     all_labels = np.concatenate(all_labels, axis=0)
 
-    # split the data into training and testing sets
-    x_train, x_test, y_train, y_test = train_test_split(all_data, all_labels, test_size=0.2, random_state = 42)
+    all_data = list(zip(all_paths, all_labels))
 
+    # split the data into training and testing sets
+    train_data, val_data = train_test_split(all_data, test_size=0.2, random_state=42)
+    
+    print(f"Will use {len(train_data)} images for training & {len(val_data)} images for validation")
     # define the cnn model
 
     model = Sequential([
@@ -157,41 +220,6 @@ def main(input_dirs):
         Dense(2)  # Output for throttle and steering
     ])
 
-    # model = Sequential([
-    #     Input(shape=(120, 160, 1)),
-    #     Conv2D(32, (3, 3), activation='relu'),
-    #     MaxPooling2D((2, 2)), 
-    #     Conv2D(64, (3, 3), activation='relu'),
-    #     MaxPooling2D((2, 2)),
-    #     Conv2D(128, (3, 3), activation='relu'),
-    #     MaxPooling2D((2, 2)),
-    #     Conv2D(256, (3, 3), activation='relu'),
-    #     MaxPooling2D((2, 2)),
-    #     Flatten(),
-    #     Dense(512, activation='relu'),
-    #     Dropout(0.5),
-    #     Dense(2) # output for throttle and steering
-    # ])
-
-    # model = Sequential([
-    #     Input(shape=(120, 160, 1)),
-    #     Conv2D(24, (3, 3), activation='relu'),
-    #     MaxPooling2D((2, 2)), 
-    #     Conv2D(36, (3, 3), activation='relu'),
-    #     MaxPooling2D((2, 2)),
-    #     Conv2D(48, (3, 3), activation='relu'),
-    #     MaxPooling2D((2, 2)),
-    #     Conv2D(64, (3, 3), activation='relu'),
-    #     MaxPooling2D((2, 2)),
-    #     Conv2D(64, (3, 3), activation='relu'),
-    #     MaxPooling2D((2, 2)),
-    #     Flatten(),
-    #     Dense(1164, activation='relu'),
-    #     Dense(100, activation='relu'),
-    #     Dense(50, activation='relu'),
-    #     Dense(2) # output for throttle and steering
-    # ])
-
     # compile the model
     model.compile(optimizer='adam', loss='mse')
 
@@ -199,8 +227,11 @@ def main(input_dirs):
     # define earlystopping callback
     early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
     
+    train_gen = CustomDataGen(train_data, batch_size=32, dim=(160, 120, 1), shuffle=True)
+    val_gen = CustomDataGen(val_data, batch_size=32, dim=(160, 120, 1), shuffle=False)
+
     # train the model
-    history = model.fit(x_train, y_train, epochs=50, validation_data=(x_test, y_test), callbacks=[early_stopping])
+    history = model.fit(train_gen, epochs=50, validation_data=val_gen, callbacks=[early_stopping])
 
     # # save the model
     model.save('self_drive_model.h5')
@@ -218,7 +249,7 @@ def main(input_dirs):
     
     print("Conversion complete")
 
-    test_loss = model.evaluate(x_test, y_test)
+    test_loss = model.evaluate(val_gen)
     print(f'Test loss: {test_loss}')
 
     # plot traning and valuation loss values
