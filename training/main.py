@@ -41,8 +41,8 @@ l2 = tf.keras.regularizers.l2
 Adam = tf.keras.optimizers.Adam
 EarlyStopping = tf.keras.callbacks.EarlyStopping
 
-# DIM = (160, 120, 1)
-DIM = (192, 144) # (width, height)
+DIM = (160, 120, 1) # (width, height)
+# DIM = (192, 144) # (width, height)
 EPOCHS = 60
 
 import matplotlib.pyplot as plt
