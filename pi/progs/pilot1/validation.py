@@ -13,13 +13,16 @@ inference_times = []
 paused = False
 tot_diff = 0
 
+# DIM = (160, 120)
+DIM = (192, 144)
 
 def drive_frame(image, interpreter, input_details, output_details):
     global paused
     global tot_diff
 
     def preprocess_image(image):
-        gray_image = image.resize((192, 144))
+        #gray_image = image.resize((160, 120))
+        gray_image = image.resize(DIM)
         image_array = np.array(gray_image, dtype=np.float32)
         image_array /= 255.0
         input_data = np.expand_dims(image_array, axis=0)  # Add batch dimension
