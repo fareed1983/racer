@@ -4,9 +4,17 @@
 # pip install tensorflow==2.15.1  
 # pip install keras==3.2.1
 # python main.py `find ~/Projects/cchs/training -type d -name "2024*"` 
+# sudo powermetrics --samplers gpu_power --show-usage
+
+# Solve conversion problem?
+# pip install -U tf_keras # Keras 2
+# import os
+# os.environ["TF_USE_LEGACY_KERAS"] = "1"
 
 # OS contains functions such as reading files
 import os
+# os.environ["TF_USE_LEGACY_KERAS"] = "1"
+
 # for parsing file
 import struct
 # for generating filenames from sensor data
@@ -18,6 +26,7 @@ import numpy as np
 from PIL import Image
 # We will use TensorFlow and Keras for building the neural network
 import tensorflow as tf
+import keras
 
 Sequential = tf.keras.models.Sequential
 Input = tf.keras.layers.Input
@@ -32,7 +41,12 @@ l2 = tf.keras.regularizers.l2
 Adam = tf.keras.optimizers.Adam
 EarlyStopping = tf.keras.callbacks.EarlyStopping
 
+DIM = (160, 120, 1) # (width, height)
+# DIM = (192, 144) # (width, height)
+EPOCHS = 60
+
 import matplotlib.pyplot as plt
+
 
 # sklearn allows us to easily split the dataset
 from sklearn.model_selection import train_test_split
@@ -108,21 +122,8 @@ def gen_data_lists(input_dir, sensor_data):
 
     return paths, labels
 
-    
-            # image = Image.open(image_path).convert('L') # open jpg and convert to grayscale
-            # image = image.resize((160, 120))
-            # image_array = np.array(image)
-            # data.append(image_array)
-
-            # flipped_image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            # flipped_image_array = np.array(flipped_image)
-            # data.append(flipped_image_array)
-            # labels.append([throttle, -steering])
-
-            # data = data / 255.0
-        # data = data.reshape(data.shape[0], 120, 160, 1)
 class CustomDataGen(tf.keras.utils.Sequence):
-    def __init__(self, data, dim = (120, 160, 1), batch_size = 32, shuffle = True, **kwargs):
+    def __init__(self, data, dim = DIM, batch_size = 32, shuffle = True, **kwargs):
         super().__init__(**kwargs)
         self.data = data
         self.dim = dim
@@ -152,7 +153,7 @@ class CustomDataGen(tf.keras.utils.Sequence):
             # Load and preprocess the image
             # print(f"Loading {path}. throttle={label[0]}, steering={label[1]}")
             image = Image.open(path).convert('L')  # open jpg and convert to grayscale
-            image = image.resize(self.dim[:2])
+            image = image.resize(self.dim)
             image_array = np.array(image)
             image_array = image_array / 255.0  # Normalize the image
 
@@ -173,7 +174,7 @@ class CustomDataGen(tf.keras.utils.Sequence):
         y = np.array(y)
 
         # Reshape data for the CNN input
-        X = X.reshape(X.shape[0], *self.dim)
+        X = X.reshape(X.shape[0], self.dim[1], self.dim[0], 1) 
 
         return X, y
     
@@ -202,23 +203,26 @@ def main(input_dirs):
     # define the cnn model
 
     model = Sequential([
-        Input(shape=(120, 160, 1)),
+        Input(shape=(DIM[1], DIM[0], 1)),
         
-        Conv2D(24, (5, 5), strides=(2, 2), activation='relu'),
-        Conv2D(32, (5, 5), strides=(2, 2), activation='relu'),
-        Conv2D(64, (5, 5), strides=(2, 2), activation='relu'),
+        Conv2D(24, (5, 5), activation='relu'),
+        MaxPooling2D(pool_size=(2, 2)),
+        Conv2D(32, (5, 5), activation='relu'),
+        MaxPooling2D(pool_size=(2, 2)),
+        Conv2D(64, (5, 5), activation='relu'),
+        MaxPooling2D(pool_size=(2, 2)),
         Conv2D(64, (3, 3), activation='relu'),
+        MaxPooling2D(pool_size=(2, 2)),
         Conv2D(64, (3, 3), activation='relu'),
-        
+
         Flatten(),
-        
+      
         Dense(100, activation='relu'),
-        Dropout(0.5),
         Dense(50, activation='relu'),
-        Dropout(0.5),
         Dense(10, activation='relu'),
         Dense(2)  # Output for throttle and steering
     ])
+
 
     # compile the model
     model.compile(optimizer='adam', loss='mse')
@@ -227,27 +231,16 @@ def main(input_dirs):
     # define earlystopping callback
     early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
     
-    train_gen = CustomDataGen(train_data, batch_size=32, dim=(160, 120, 1), shuffle=True)
-    val_gen = CustomDataGen(val_data, batch_size=32, dim=(160, 120, 1), shuffle=False)
+    train_gen = CustomDataGen(train_data, batch_size=32, dim=DIM, shuffle=True)
+    val_gen = CustomDataGen(val_data, batch_size=32, dim=DIM, shuffle=False)
 
     # train the model
-    history = model.fit(train_gen, epochs=50, validation_data=val_gen, callbacks=[early_stopping])
+    history = model.fit(train_gen, epochs=EPOCHS, validation_data=val_gen, callbacks=[early_stopping])
 
     # # save the model
-    model.save('self_drive_model.h5')
+    model.export('self_drive_model')
 
     print("Model traning done")
-
-    # convert the model to tensorflow lite format
-    print("Converting...")
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    tflite_model = converter.convert()
-
-    # Save the converted model.
-    with open('model.tflite', 'wb') as f:
-        f.write(tflite_model)
-    
-    print("Conversion complete")
 
     test_loss = model.evaluate(val_gen)
     print(f'Test loss: {test_loss}')
@@ -260,6 +253,18 @@ def main(input_dirs):
     plt.ylabel('Loss')
     plt.legend(loc='upper right')
     plt.show()
+
+    # convert the model to tensorflow lite format
+    print("Converting...")
+    model = keras.layers.TFSMLayer("self_drive_model", call_endpoint='serve') # TensorFlow >= 2.16.0
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    tflite_model = converter.convert()
+    tf.lite.experimental.Analyzer.analyze(model_content=tflite_model)
+    open("self_drive_model.tflite", "wb").write(tflite_model)
+
+    print("Conversion complete")
 
 
     # # Load the TFLite model and allocate tensors
