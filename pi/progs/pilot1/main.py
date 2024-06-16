@@ -22,15 +22,7 @@ DIM = None
 
 def drive_frame(image, interpreter, input_details, output_details, pwm):
             gray_image = image.resize(DIM)
-
-
-            brightness_enhancer = ImageEnhance.Brightness(gray_image)
-            enhanced_image = brightness_enhancer.enhance(1.3)
-
-            enhancer = ImageEnhance.Contrast(enhanced_image)
-            enhanced_image = enhancer.enhance(1.6)
-
-            image_array = np.array(enhanced_image, dtype=np.float32)
+            image_array = np.array(gray_image, dtype=np.float32)
             
             image_array /= 255.0
             
@@ -56,7 +48,7 @@ def drive_frame(image, interpreter, input_details, output_details, pwm):
             throttle = int(throttle * 100.0)
             steering = int(steering * 100.0)
 
-            throttle = np.clip(throttle, 20, 27)
+            throttle = np.clip(throttle, 20, 25)
             steering = np.clip(steering, -100, 100)
 
             print(f"T:{throttle}, S: {steering}")
@@ -76,19 +68,6 @@ def drive_frame(image, interpreter, input_details, output_details, pwm):
             for i, inf_time in enumerate(inference_times):
                 text = f"Time {i+1}: {inf_time:.2f} ms"
                 cv2.putText(display_image, text, (10, display_image.shape[0] - 10 - i * 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 25, 0), 1, cv2.LINE_AA)
-
-            # Convert enhanced_image from PIL to OpenCV format
-            enhanced_image_cv = np.array(enhanced_image)
-            enhanced_image_cv = cv2.cvtColor(enhanced_image_cv, cv2.COLOR_GRAY2BGR)
-
-            # Determine the position where to place the enhanced_image
-            h, w, _ = enhanced_image_cv.shape
-            display_h, display_w, _ = display_image.shape
-            x_offset = display_w - w - 10  # 10 pixels from the right edge
-            y_offset = display_h - h - 10  # 10 pixels from the bottom edge
-
-            # Overlay the enhanced_image on the display_image
-            display_image[y_offset:y_offset+h, x_offset:x_offset+w] = enhanced_image_cv
 
             # Display the image
             cv2.imshow("Processed Image", display_image)
