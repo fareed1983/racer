@@ -42,7 +42,8 @@ Adam = tf.keras.optimizers.Adam
 EarlyStopping = tf.keras.callbacks.EarlyStopping
 
 # DIM = (160, 120, 1)
-DIM = (192, 144, 1)
+DIM = (192, 144) # (width, height)
+EPOCHS = 60
 
 import matplotlib.pyplot as plt
 
@@ -152,7 +153,7 @@ class CustomDataGen(tf.keras.utils.Sequence):
             # Load and preprocess the image
             # print(f"Loading {path}. throttle={label[0]}, steering={label[1]}")
             image = Image.open(path).convert('L')  # open jpg and convert to grayscale
-            image = image.resize(self.dim[:2])
+            image = image.resize(self.dim)
             image_array = np.array(image)
             image_array = image_array / 255.0  # Normalize the image
 
@@ -173,7 +174,7 @@ class CustomDataGen(tf.keras.utils.Sequence):
         y = np.array(y)
 
         # Reshape data for the CNN input
-        X = X.reshape(X.shape[0], *self.dim)
+        X = X.reshape(X.shape[0], self.dim[1], self.dim[0], 1) 
 
         return X, y
     
@@ -202,7 +203,7 @@ def main(input_dirs):
     # define the cnn model
 
     model = Sequential([
-        Input(shape=DIM),
+        Input(shape=(DIM[1], DIM[0], 1)),
         
         Conv2D(24, (5, 5), activation='relu'),
         MaxPooling2D(pool_size=(2, 2)),
@@ -234,7 +235,7 @@ def main(input_dirs):
     val_gen = CustomDataGen(val_data, batch_size=32, dim=DIM, shuffle=False)
 
     # train the model
-    history = model.fit(train_gen, epochs=60, validation_data=val_gen, callbacks=[early_stopping])
+    history = model.fit(train_gen, epochs=EPOCHS, validation_data=val_gen, callbacks=[early_stopping])
 
     # # save the model
     model.export('self_drive_model')

@@ -19,7 +19,7 @@ def drive_frame(image, interpreter, input_details, output_details):
     global tot_diff
 
     def preprocess_image(image):
-        gray_image = image.resize((160, 120))
+        gray_image = image.resize((192, 144))
         image_array = np.array(gray_image, dtype=np.float32)
         image_array /= 255.0
         input_data = np.expand_dims(image_array, axis=0)  # Add batch dimension
