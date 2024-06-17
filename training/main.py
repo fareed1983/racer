@@ -12,7 +12,7 @@ import pytz
 # numpy is a popular library used for operations on numeric arrays
 import numpy as np
 # Python Image Library for image processing
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 # We will use TensorFlow and Keras for building the neural network
 import tensorflow as tf
 import keras
@@ -174,6 +174,9 @@ class CustomDataGen(tf.keras.utils.Sequence):
                     radius = random.uniform(0.5, 2.0)
                     aug_image = aug_image.filter(ImageFilter.GaussianBlur(radius))
                     aug_label = label
+                elif augmentation == 'invert':
+                    aug_image = ImageOps.invert(aug_image)
+                    aug_label = label
             
                 aug_image_array = np.array(aug_image)
                 aug_image_array = aug_image_array / 255.0
@@ -306,7 +309,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Self-driving model trainer')
     # input arguments for the type of augmentations to perform
-    parser.add_argument('-a', '--augmentations', type=str, nargs='+', required=False, help="Augmentations to use when training. Options: flip, brightness, contrast, blur.")
+    parser.add_argument('-a', '--augmentations', type=str, nargs='+', required=False, help="Augmentations to use when training. Options: flip, brightness, contrast, blur, invert")
     parser.add_argument('-i', '--input-dirs', type=str, nargs='+', help="Folder containing sensor data file and images")
     args = parser.parse_args()
 
