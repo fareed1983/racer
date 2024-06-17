@@ -1,19 +1,8 @@
-# toco --output_file=self_drive_model.tflite --keras_model_file=self_drive_model.h5
-# pip install -U tf_keras
-# python3.11 not 12
-# pip install tensorflow==2.15.1  
-# pip install keras==3.2.1
-# python main.py `find ~/Projects/cchs/training -type d -name "2024*"` 
-# sudo powermetrics --samplers gpu_power --show-usage
-
-# Solve conversion problem?
-# pip install -U tf_keras # Keras 2
-# import os
-# os.environ["TF_USE_LEGACY_KERAS"] = "1"
-
 # OS contains functions such as reading files
 import os
 # os.environ["TF_USE_LEGACY_KERAS"] = "1"
+
+import random
 
 # for parsing file
 import struct
@@ -23,7 +12,7 @@ import pytz
 # numpy is a popular library used for operations on numeric arrays
 import numpy as np
 # Python Image Library for image processing
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 # We will use TensorFlow and Keras for building the neural network
 import tensorflow as tf
 import keras
@@ -41,12 +30,11 @@ l2 = tf.keras.regularizers.l2
 Adam = tf.keras.optimizers.Adam
 EarlyStopping = tf.keras.callbacks.EarlyStopping
 
-DIM = (160, 120, 1) # (width, height)
+DIM = (160, 120) # (width, height)
 # DIM = (192, 144) # (width, height)
 EPOCHS = 60
 
 import matplotlib.pyplot as plt
-
 
 # sklearn allows us to easily split the dataset
 from sklearn.model_selection import train_test_split
@@ -123,18 +111,20 @@ def gen_data_lists(input_dir, sensor_data):
     return paths, labels
 
 class CustomDataGen(tf.keras.utils.Sequence):
-    def __init__(self, data, dim = DIM, batch_size = 32, shuffle = True, **kwargs):
+    def __init__(self, data, dim = DIM, batch_size = 32, shuffle = True, augmentations=None, **kwargs):
         super().__init__(**kwargs)
         self.data = data
         self.dim = dim
         self.batch_size = batch_size
         self.indexes = np.arange(len(self.data))
         self.shuffle = shuffle
+        self.augmentations = augmentations or []
 
         self.on_epoch_end()
 
     def __len__(self):
-        return int(np.floor(len(self.data) / self.batch_size))
+        num_augmentations = len(self.augmentations) + 1
+        return int(np.ceil(len(self.data) * num_augmentations / self.batch_size))
     
     def on_epoch_end(self):
         if (self.shuffle):
@@ -143,9 +133,14 @@ class CustomDataGen(tf.keras.utils.Sequence):
     def __getitem__(self, index):
         X = []
         y = []
+        
+        num_augmentations = len(self.augmentations) + 1 
 
-        start_index = index * self.batch_size
-        end_index = (index + 1) * self.batch_size
+        # the index param in this funciton will assume augmentations are included
+        start_index = index * self.batch_size // num_augmentations
+        end_index = (index + 1) * self.batch_size // num_augmentations
+
+
         batch_indexes = self.indexes[start_index:end_index]
         
         batch_data = [self.data[k] for k in batch_indexes]
@@ -161,14 +156,31 @@ class CustomDataGen(tf.keras.utils.Sequence):
             X.append(image_array)
             y.append(label)
 
-            # Data augmentation by flipping the image
-            flipped_image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            flipped_image_array = np.array(flipped_image)
-            flipped_image_array = flipped_image_array / 255.0
+            for augmentation in self.augmentations:
+                aug_image = image.copy()
+                if augmentation == 'flip':
+                    aug_image = aug_image.transpose(Image.FLIP_LEFT_RIGHT);
+                    aug_label = [label[0], -label[1]]
+                elif augmentation == 'brightness':
+                    factor = random.uniform(0.5, 1.5)
+                    enhancer = ImageEnhance.Brightness(aug_image)
+                    aug_image = enhancer.enhance(factor)
+                    aug_label = label
+                elif augmentation == 'contrast':
+                    factor = random.uniform(0.5, 1.5)
+                    enhancer = ImageEnhance.Contrast(aug_image)
+                    aug_label = label
+                elif augmentation == 'blur':
+                    radius = random.uniform(0.5, 2.0)
+                    aug_image = aug_image.filter(ImageFilter.GaussianBlur(radius))
+                    aug_label = label
+            
+                aug_image_array = np.array(aug_image)
+                aug_image_array = aug_image_array / 255.0
 
-            # Append flipped image data and modified label
-            X.append(flipped_image_array)
-            y.append([label[0], -label[1]])
+                # Append augmented image data and modified label
+                X.append(aug_image_array)
+                y.append(aug_label)
 
         X = np.array(X)
         y = np.array(y)
@@ -179,7 +191,9 @@ class CustomDataGen(tf.keras.utils.Sequence):
         return X, y
     
 
-def main(input_dirs):
+def main(input_dirs, augmentations):
+
+    augmentations = augmentations or []
     
     all_paths = []
     all_labels = []
@@ -199,16 +213,14 @@ def main(input_dirs):
     # split the data into training and testing sets
     train_data, val_data = train_test_split(all_data, test_size=0.2, random_state=42)
     
-    print(f"Will use {len(train_data)} images for training & {len(val_data)} images for validation")
+    print(f"Will use {len(train_data)} images for training ({len(train_data) * (len(augmentations) + 1)} with augmentations) & {len(val_data)} images for validation")
     # define the cnn model
 
     model = Sequential([
         Input(shape=(DIM[1], DIM[0], 1)),
         
-        Conv2D(24, (5, 5), activation='relu'),
-        MaxPooling2D(pool_size=(2, 2)),
-        Conv2D(32, (5, 5), activation='relu'),
-        MaxPooling2D(pool_size=(2, 2)),
+        Conv2D(24, (5, 5), strides=(2, 2), activation='relu'),
+        Conv2D(24, (5, 5), strides=(2, 2), activation='relu'),
         Conv2D(64, (5, 5), activation='relu'),
         MaxPooling2D(pool_size=(2, 2)),
         Conv2D(64, (3, 3), activation='relu'),
@@ -218,11 +230,32 @@ def main(input_dirs):
         Flatten(),
       
         Dense(100, activation='relu'),
+        Dropout(0.4),
         Dense(50, activation='relu'),
+        Dropout(0.3),
         Dense(10, activation='relu'),
         Dense(2)  # Output for throttle and steering
     ])
 
+
+    # model = Sequential([
+    #     Input(shape=(DIM[1], DIM[0], 1)),
+        
+    #     Conv2D(24, (5, 5), strides=(2, 2), activation='relu'),
+    #     Conv2D(32, (5, 5), strides=(2, 2), activation='relu'),
+    #     Conv2D(64, (5, 5), strides=(2, 2), activation='relu'),
+    #     Conv2D(64, (3, 3), activation='relu'),
+    #     Conv2D(64, (3, 3), activation='relu'),
+        
+    #     Flatten(),
+        
+    #     Dense(100, activation='relu'),
+    #     Dropout(0.5),
+    #     Dense(50, activation='relu'),
+    #     Dropout(0.5),
+    #     Dense(10, activation='relu'),
+    #     Dense(2)  # Output for throttle and steering
+    # ])
 
     # compile the model
     model.compile(optimizer='adam', loss='mse')
@@ -231,7 +264,7 @@ def main(input_dirs):
     # define earlystopping callback
     early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
     
-    train_gen = CustomDataGen(train_data, batch_size=32, dim=DIM, shuffle=True)
+    train_gen = CustomDataGen(train_data, batch_size=32, dim=DIM, shuffle=True, augmentations=augmentations)
     val_gen = CustomDataGen(val_data, batch_size=32, dim=DIM, shuffle=False)
 
     # train the model
@@ -244,15 +277,6 @@ def main(input_dirs):
 
     test_loss = model.evaluate(val_gen)
     print(f'Test loss: {test_loss}')
-
-    # plot traning and valuation loss values
-    plt.plot(history.history['loss'], label='Training Loss')
-    plt.plot(history.history['val_loss'], label='Validation Loss')
-    plt.title('Model Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend(loc='upper right')
-    plt.show()
 
     # convert the model to tensorflow lite format
     print("Converting...")
@@ -267,52 +291,23 @@ def main(input_dirs):
     print("Conversion complete")
 
 
-    # # Load the TFLite model and allocate tensors
-    # interpreter = tf.lite.Interpreter(model_content=tflite_model)
-    # interpreter.allocate_tensors()
-
-    # # Get input and output tensors
-    # input_details = interpreter.get_input_details()
-    # output_details = interpreter.get_output_details()
-    
-    # image_path = "/Users/fareed/Projects/cchs/training/2024-05-19-12-37-04/source_image_2024-05-19-12:40:57.914.jpg"
-    # image = Image.open(image_path).convert('L')
-    # gray_image = image.resize((160, 120))
-    # image_array = np.array(gray_image, dtype=np.float32)
-
-    # image_array /= 255.0
-
-    # # Expand dimensions to match model input
-    # sample_input = np.expand_dims(image_array, axis=0)  # Add batch dimension
-    # sample_input = np.expand_dims(sample_input, axis=-1)  # Add channel dimension
-
-
-    # # Test the TFLite model on a sample input
-    # input_shape = input_details[0]['shape']
-    # # sample_input = np.random.rand(*input_shape).astype(np.float32)
-
-    # # Perform inference with the TFLite model
-    # interpreter.set_tensor(input_details[0]['index'], sample_input)
-    # interpreter.invoke()
-    # tflite_output = interpreter.get_tensor(output_details[0]['index'])
-
-    # # Perform inference with the original Keras model for comparison
-    # keras_output = model.predict(sample_input)
-
-    # # Compare the outputs
-    # print("Keras model output:", keras_output)
-    # print("TFLite model output:", tflite_output)
-
-    # # Verify that the outputs are close
-    # np.testing.assert_allclose(keras_output, tflite_output, rtol=1e-5, atol=1e-5)
-    # print("Outputs are similar, conversion successful.")
+    # plot traning and valuation loss values
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title('Model Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend(loc='upper right')
+    plt.show()
 
 
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(description='Train self-driving model')
-    parser.add_argument('input_dir', type=str, nargs='+', help="Folder containing sensor data file and images")
+    parser = argparse.ArgumentParser(description='Self-driving model trainer')
+    # input arguments for the type of augmentations to perform
+    parser.add_argument('-a', '--augmentations', type=str, nargs='+', required=False, help="Augmentations to use when training. Options: flip, brightness, contrast, blur.")
+    parser.add_argument('-i', '--input-dirs', type=str, nargs='+', help="Folder containing sensor data file and images")
     args = parser.parse_args()
 
-    main(args.input_dir)
+    main(args.input_dirs, args.augmentations)
