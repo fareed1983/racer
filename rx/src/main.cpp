@@ -98,6 +98,7 @@ Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 
 int iri = 0;
 uint16_t dists[4] = {0, 0, 0, 0}, prevSs = SER_MID, prevEs = ESC_MID, distFront, ultraIdx = 0;
+int16_t straightAngleOffset = 0;
 float prevBattV = 0, lastYaw = 0;
 unsigned long nextSec = 0, poweroffTransition = 0, lastIter = 0;
 bool connected = false;
@@ -271,8 +272,9 @@ void setup() {
 void loop() {
 
   txRxSimpleCtrl_t sc;
-  memset(&sc, 0, sizeof(sc));
 
+  memset(&sc, 0, sizeof(sc));
+  
   uint8_t len = sizeof(buf);
   uint8_t from;
   unsigned long currTime = millis(); 
@@ -291,7 +293,7 @@ void loop() {
       txRxDirectionCtrl_t dc;
       memcpy(&dc, buf + 1, sizeof(txRxDirectionCtrl_t));
       sc.throttle = dc.throttle;
-      sc.steering = sin(((dc.angle - 90) - lastYaw) * (M_PI / 180.0)) * dc.magnitude;
+      sc.steering = sin(((dc.angle - 90) - lastYaw - straightAngleOffset) * (M_PI / 180.0)) * dc.magnitude;
     }
     //Serial.printf("Got cmd %c\n", *((char *)buf));
     
@@ -323,6 +325,14 @@ void loop() {
           prevEs = es;
           upd1 = true;
         }
+      break;
+
+      case TX_RX_CMD_RESET_DIRECTION:
+        txRxResetDirection_t rd;
+        memcpy(&rd, buf + 1, sizeof(txRxResetDirection_t));
+        straightAngleOffset = rd.angle - 90 - lastYaw; 
+        Serial.printf("Got reset dir %d\n", straightAngleOffset);
+
       break;
 
       case TX_RX_CMD_START_SBC:

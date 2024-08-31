@@ -406,14 +406,24 @@ void loop() {
           break;
 
         case DIRECTION:
-          sd.throttle = cth;
-          sd.angle = cang;
-          sd.magnitude = cst;
+          if (swaTrans == SW_TRANS_CNT - 2) {
+            buf[0] = TX_RX_CMD_RESET_DIRECTION;
+            txRxResetDirection_t rd = {
+              angle: cang
+            };
+            Serial.printf("Dir Rst: %d\n", rd.angle);
+            memcpy(buf + 1, &rd, sizeof(txRxResetDirection_t));
+            len = sizeof(txRxResetDirection_t) + 1;;
+          } else {
+            sd.throttle = cth;
+            sd.angle = cang;
+            sd.magnitude = cst;
 
-          buf[0] = TX_RX_CMD_DIRECTION_CTRL;
-          memcpy(buf + 1, &sd, sizeof(sd));
-          len = sizeof(txRxDirectionCtrl_t) + 1;
-          break;
+            buf[0] = TX_RX_CMD_DIRECTION_CTRL;
+            memcpy(buf + 1, &sd, sizeof(sd));
+            len = sizeof(txRxDirectionCtrl_t) + 1;
+            break;
+          }
       }
     }
 
@@ -430,7 +440,7 @@ void loop() {
     }
 
     lastCmd = ms;
-  } 
+  }
   
   if (connState == TRX && lastCmd + 100 < ms) connState = CONN;
 

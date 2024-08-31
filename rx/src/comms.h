@@ -61,6 +61,10 @@ typedef struct {
   int8_t magnitude;
 } txRxDirectionCtrl_t;
 
+typedef struct {
+  int16_t angle;
+} txRxResetDirection_t;
+
 #define START_SEQ_LEN 4
 
 #define START_SEQ "<!~|"
