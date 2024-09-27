@@ -98,14 +98,14 @@ Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 
 int iri = 0;
 uint16_t dists[4] = {0, 0, 0, 0}, prevSs = SER_MID, prevEs = ESC_MID, distFront, ultraIdx = 0;
-int16_t straightAngleOffset = 0;
+int16_t straightAngleOffset = 0, failedRcv = 0;
 float prevBattV = 0, lastYaw = 0;
 unsigned long nextSec = 0, poweroffTransition = 0, lastIter = 0;
 bool connected = false;
 char sbcState = SBC_ST_OFF;
 char buf[255] = {0};
 senData_t sd;
-float yawErr = 0;
+float yawErr = 0, startOffset;
 
 // struct {
 //   IRsend *sender;
@@ -114,10 +114,10 @@ float yawErr = 0;
 // } irs[2];
 
 Ultrasonic ultras[4]={
-  Ultrasonic(PIN_UL_TRIG_0, PIN_UL_ECHO_0),
-  Ultrasonic(PIN_UL_TRIG_1, PIN_UL_ECHO_1),
   Ultrasonic(PIN_UL_TRIG_2, PIN_UL_ECHO_2),
-  Ultrasonic(PIN_UL_TRIG_3, PIN_UL_ECHO_3)
+  Ultrasonic(PIN_UL_TRIG_3, PIN_UL_ECHO_3),
+  Ultrasonic(PIN_UL_TRIG_1, PIN_UL_ECHO_1),
+  Ultrasonic(PIN_UL_TRIG_0, PIN_UL_ECHO_0)
 };	
 
 bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen);
@@ -222,10 +222,12 @@ void setup() {
   mpu.begin();
   mpu.calcOffsets(true, true); // gyro and accelero
 
+  float startYaw = mpu.getAngleZ();
   mpu.update();
-  delay(2000);
-  yawErr = mpu.getAngleZ() / 2;// / 1000;
+  delay(5000);
   mpu.update();
+  startOffset = mpu.getAngleZ();
+  yawErr = (startOffset - startYaw) / 10;// / 500;
 
   lcd.clear();
   lcd.setCursor(0, 1);
@@ -269,11 +271,9 @@ void setup() {
   lastIter = millis();
 }
 
+txRxSimpleCtrl_t sc = {0, 0};
+
 void loop() {
-
-  txRxSimpleCtrl_t sc;
-
-  memset(&sc, 0, sizeof(sc));
   
   uint8_t len = sizeof(buf);
   uint8_t from;
@@ -287,13 +287,19 @@ void loop() {
     poweroffTransition = 0;
   }
 
-  if (rf69_manager.recvfromAckTimeout((uint8_t *)&buf, &len, 150, &from)) {
-    if (*buf == TX_RX_CMD_DIRECTION_CTRL) {
+  float v;
+  mpu.update();
+  v = mpu.getAngleZ();
+  if (abs(v - lastYaw) > 0.1) upd0 = true;  
+  lastYaw = v - startOffset;
+
+  if (rf69_manager.recvfromAckTimeout((uint8_t *)&buf, &len, 10, &from)) {
+    if (*buf == TX_RX_CMD_DIRECTION_CTRL) {       
       // Populate the simpCtrl and rest is the same as SIMPLE_CTRL
       txRxDirectionCtrl_t dc;
       memcpy(&dc, buf + 1, sizeof(txRxDirectionCtrl_t));
       sc.throttle = dc.throttle;
-      sc.steering = sin(((dc.angle - 90) - lastYaw - straightAngleOffset) * (M_PI / 180.0)) * dc.magnitude;
+      sc.steering = sin(((dc.angle - 90) - lastYaw + straightAngleOffset) * (M_PI / 180.0)) * dc.magnitude;
     }
     //Serial.printf("Got cmd %c\n", *((char *)buf));
     
@@ -330,9 +336,8 @@ void loop() {
       case TX_RX_CMD_RESET_DIRECTION:
         txRxResetDirection_t rd;
         memcpy(&rd, buf + 1, sizeof(txRxResetDirection_t));
-        straightAngleOffset = rd.angle - 90 - lastYaw; 
-        Serial.printf("Got reset dir %d\n", straightAngleOffset);
-
+        straightAngleOffset = lastYaw - rd.angle + 90; 
+        Serial.printf("Got reset dir=%d, new straightAngleOffset=%d, lastYaw=%.0f\n", rd.angle, straightAngleOffset, lastYaw);
       break;
 
       case TX_RX_CMD_START_SBC:
@@ -368,17 +373,21 @@ void loop() {
     }
     
     connected = true;
+    failedRcv = 0;
   } else if (connected) {   // no command received
-    Serial.println("DISCO");
-    if (prevEs != ESC_MID || prevSs != SER_MID) {
-      prevEs = ESC_MID;
-      prevSs = SER_MID;
-      SERUS(SER_MID); 
-      ESCUS(ESC_MID);
+    failedRcv ++;
+    if (failedRcv == 10) {
+      Serial.println("DISCO");
+      if (prevEs != ESC_MID || prevSs != SER_MID) {
+        prevEs = ESC_MID;
+        prevSs = SER_MID;
+        SERUS(SER_MID); 
+        ESCUS(ESC_MID);
+      }
+    
+      upd1 = true;
+      connected = false;
     } 
-
-    upd1 = true;
-    connected = false;
   }
 
   int d;
@@ -404,19 +413,13 @@ void loop() {
     leds[d] = CRGB(random(0, 255), random(0, 255), random(0, 255));
   }
 
-  float v;
   d = analogRead(PIN_BATT_SENSE);
-  v = d * 7.52 / 410.0;
+  v = d * 7.4 / 385.0;
   v = int(v * 10) / 10.0;
   if (v != prevBattV) {
     prevBattV = v;
     upd0 = true;
   }
-
-  mpu.update();
-  v = mpu.getAngleZ();
-  if (abs(v - lastYaw) > 0.1) upd0 = true;  
-  lastYaw = v;
   
   uint8_t seqMatch = 0;
   uint16_t payloadLen = 0;
@@ -539,7 +542,7 @@ void loop() {
     //Serial.println("Writing ping");
     ultraIdx ++;
     if (ultraIdx == ULTRAS_TOT) ultraIdx = 0;
-    nextSec = currTime + 1000;
+    nextSec = currTime + 500;
     if (!writeCmd(RX_SBC_CMD_PING, NULL, 0)) {
       Serial.println("Could not write");
     }

@@ -42,7 +42,7 @@ RHReliableDatagram rf69_manager(rf69, TX_ADDR);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 char buf[1024], str1[128] = {0}, str2[32];
 
-#define WINDOW_SIZE 5
+#define WINDOW_SIZE 3
 
 unsigned long prevsp = 999999;
 int sensorValue = 0, a; 
@@ -167,8 +167,8 @@ void setup() {
   uint8_t key[] = "FareedR11051983";
   rf69.setEncryptionKey(key);
 
-  rf69_manager.setTimeout(10);
-  rf69_manager.setRetries(3);
+  rf69_manager.setTimeout(5);
+  rf69_manager.setRetries(10);
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
@@ -181,7 +181,7 @@ void setup() {
   display.println(str1);
   display.display();
   
-  IrReceiver.begin(PIN_IR_RCV, ENABLE_LED_FEEDBACK);
+  // IrReceiver.begin(PIN_IR_RCV, ENABLE_LED_FEEDBACK);
 
   cmdMode = SIMPLE;
 
@@ -266,28 +266,28 @@ void loop() {
 
   if (spkr) spkr--;
 
-  static char irCmd = '-';
-  static unsigned long lastIrCmd;
+  // static char irCmd = '-';
+  // static unsigned long lastIrCmd;
 
-  if (lastIrCmd + 250 < ms) irCmd = '-';
+  // if (lastIrCmd + 250 < ms) irCmd = '-';
 
-  if (IrReceiver.decode()) {
+  // if (IrReceiver.decode()) {
 
-    if (IrReceiver.decodedIRData.protocol == NEC && IrReceiver.decodedIRData.address == 0x0102) {
-      Serial.print(F("Proto:"));
-      Serial.print(getProtocolString(IrReceiver.decodedIRData.protocol));
-      Serial.print(F(", data:"));
-      PrintULL::print(&Serial, IrReceiver.decodedIRData.decodedRawData, HEX);
-      Serial.print(F(", addr: "));
-      Serial.print(IrReceiver.decodedIRData.address, HEX);
-      Serial.print(F(", cmd: "));
-      Serial.println(IrReceiver.decodedIRData.command, HEX);
-      irCmd =  IrReceiver.decodedIRData.command;
-      lastIrCmd = ms;
-    }
+  //   if (IrReceiver.decodedIRData.protocol == NEC && IrReceiver.decodedIRData.address == 0x0102) {
+  //     Serial.print(F("Proto:"));
+  //     Serial.print(getProtocolString(IrReceiver.decodedIRData.protocol));
+  //     Serial.print(F(", data:"));
+  //     PrintULL::print(&Serial, IrReceiver.decodedIRData.decodedRawData, HEX);
+  //     Serial.print(F(", addr: "));
+  //     Serial.print(IrReceiver.decodedIRData.address, HEX);
+  //     Serial.print(F(", cmd: "));
+  //     Serial.println(IrReceiver.decodedIRData.command, HEX);
+  //     irCmd =  IrReceiver.decodedIRData.command;
+  //     lastIrCmd = ms;
+  //   }
 
-    IrReceiver.resume();
-  }
+  //   IrReceiver.resume();
+  // }
 
   sensorValue = analogRead(PIN_VRX);
   
@@ -372,7 +372,7 @@ void loop() {
   }
 
   ///*if (cmdMode == SIMPLE || rev)*/ cth = 1.011883*cth - 0.00516184 * pow(cth,2);
-  cth *= .4;
+  cth *= .5;
   
   if (rev) cth *= -1;
 
@@ -384,7 +384,7 @@ void loop() {
   display.setCursor(0, 45);
   display.print(str1);
 
-  if (swb || lastCmd + 100 < ms 
+  if (swb || lastCmd + 25 < ms 
     || (cmdMode == SIMPLE && (sc.throttle != cth || sc.steering != cst ))
     || (cmdMode == DIRECTION && (sd.throttle != cth || sd.angle != cang || sd.magnitude != cst))
   ) {
@@ -428,7 +428,7 @@ void loop() {
     }
 
     if (!rf69_manager.sendtoWait((uint8_t *)buf, len, RX_ADDR)) {
-      if (txFailCount == 5) {
+      if (txFailCount == 10) {
         spkr = SPKR_ITER;
         connState = FAIL;
       }
