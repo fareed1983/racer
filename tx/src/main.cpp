@@ -305,6 +305,7 @@ void loop() {
 
   display.clearDisplay();
 
+  bool resetDir = false;
   // Blue button
   if (swa) {
     swaTrans --;
@@ -315,6 +316,9 @@ void loop() {
       spkr = SPKR_ITER;
     }
   } else {
+    if (swaTrans < SW_TRANS_CNT - 2 && swaTrans > 1) { // key up after mini long press
+      resetDir = true;
+    }
     swaTrans = SW_TRANS_CNT;
   }
 
@@ -369,6 +373,12 @@ void loop() {
     sprintf(str1, "N:%.0f", cang );
     display.setCursor(0, 55);
     display.print(str1);
+
+    if (resetDir) {
+      sprintf(str1, "R", resetDir);
+      display.setCursor(45, 55);
+      display.print(str1);
+    }
   }
 
   ///*if (cmdMode == SIMPLE || rev)*/ cth = 1.011883*cth - 0.00516184 * pow(cth,2);
@@ -406,7 +416,7 @@ void loop() {
           break;
 
         case DIRECTION:
-          if (swaTrans == SW_TRANS_CNT - 2) {
+          if (resetDir) {
             buf[0] = TX_RX_CMD_RESET_DIRECTION;
             txRxResetDirection_t rd = {
               angle: cang

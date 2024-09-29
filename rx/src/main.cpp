@@ -113,7 +113,7 @@ float yawErr = 0, startOffset;
 //   char cmd;
 // } irs[2];
 
-Ultrasonic ultras[4]={
+Ultrasonic ultras[4] = {
   Ultrasonic(PIN_UL_TRIG_2, PIN_UL_ECHO_2),
   Ultrasonic(PIN_UL_TRIG_3, PIN_UL_ECHO_3),
   Ultrasonic(PIN_UL_TRIG_1, PIN_UL_ECHO_1),
@@ -122,6 +122,15 @@ Ultrasonic ultras[4]={
 
 bool writeCmd(uint8_t cmd, uint8_t *payload, uint16_t payloadLen);
 bool upd0 = true, upd1 = true;
+
+void blinkLcd(uint8_t times) {
+  for (times = 0; times < 3; times ++) {
+    lcd.noBacklight();
+    delay(60);
+    lcd.backlight();
+    delay(60);
+  }
+}
 
 void setup() {
   // irs[0] = { sender: new IRsend(), pin: PIN_IR_BK, cmd: 'b' };
@@ -249,12 +258,13 @@ void setup() {
   // display.println(str1);
   // display.display();
 
-  if(!mag.begin())
-  {
+  if(!mag.begin()) {
     /* There was a problem detecting the HMC5883 ... check your connections */
     Serial.println("Ooops, no HMC5883 detected ... Check your wiring!");
     while(1);
   }
+
+  blinkLcd(3);
 
   sensor_t sensor;
   mag.getSensor(&sensor);
@@ -285,6 +295,7 @@ void loop() {
     sbcState = SBC_ST_OFF;
     digitalWrite(PIN_PWR_CTRL, false);
     poweroffTransition = 0;
+    blinkLcd(3);
   }
 
   float v;
@@ -294,7 +305,7 @@ void loop() {
   lastYaw = v - startOffset;
 
   if (rf69_manager.recvfromAckTimeout((uint8_t *)&buf, &len, 10, &from)) {
-    if (*buf == TX_RX_CMD_DIRECTION_CTRL) {       
+    if (*buf == TX_RX_CMD_DIRECTION_CTRL) {
       // Populate the simpCtrl and rest is the same as SIMPLE_CTRL
       txRxDirectionCtrl_t dc;
       memcpy(&dc, buf + 1, sizeof(txRxDirectionCtrl_t));
@@ -338,12 +349,14 @@ void loop() {
         memcpy(&rd, buf + 1, sizeof(txRxResetDirection_t));
         straightAngleOffset = lastYaw - rd.angle + 90; 
         Serial.printf("Got reset dir=%d, new straightAngleOffset=%d, lastYaw=%.0f\n", rd.angle, straightAngleOffset, lastYaw);
+        blinkLcd(3);
       break;
 
       case TX_RX_CMD_START_SBC:
         switch (sbcState) {
           case SBC_ST_OFF:
             digitalWrite(PIN_PWR_CTRL, false);
+            blinkLcd(5);
             delay(1000);
             digitalWrite(PIN_PWR_CTRL, true);
             sbcState = SBC_ST_BOOTING;
@@ -366,6 +379,7 @@ void loop() {
         
         default:
           writeCmd(RX_SBC_CMD_SHUTDOWN, NULL, 0);
+          blinkLcd(3);
           sbcState = SBC_ST_POWERING_OFF;
           poweroffTransition = currTime + 20000;
           break;
@@ -456,7 +470,6 @@ void loop() {
     }
 
     payloadLen = *(buf + 1);
-
 
     //Serial.printf("cmd: %c payloadLen: %d\n", *buf, payloadLen);
 
