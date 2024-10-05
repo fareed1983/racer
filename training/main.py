@@ -171,7 +171,7 @@ class CustomDataGen(tf.keras.utils.Sequence):
                     enhancer = ImageEnhance.Contrast(aug_image)
                     aug_label = label
                 elif augmentation == 'blur':
-                    radius = random.uniform(0.5, 2.0)
+                    radius = random.uniform(0.25, 1.0)
                     aug_image = aug_image.filter(ImageFilter.GaussianBlur(radius))
                     aug_label = label
                 elif augmentation == 'invert':
