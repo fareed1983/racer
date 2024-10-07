@@ -8,7 +8,7 @@ This repository contains the source code for all software components of a self-d
 3. Image augmentation to improve neural network performance in autonomous vehicles
 
 # Folder structure
-- **unoTest** - Testing OLED, ultrasonic distance, pressure switch & joystick peripherals on an Arduino Uno prior to constructing the RX and TX modules**
+- **unoTest** - Testing OLED, ultrasonic distance, pressure switch & joystick peripherals on an Arduino Uno prior to constructing the RX and TX modules.
 - **rx** - The source code of the reciever module based on a Adafruit M0 Feather RFM69. It uses I2C and UARTG to communicate with the SBC (Raspberry Pi or other). Peripheals it uses are: 16x2 LCD on I2C, PCA9685 PWM driver on I2C, relay to control SBC power, 4 HR-SC04 ultrasonic sensors, gyroscope on I2C and magnetometer on I2C. It receives commands from the TX module.
 - **tx** - The source coude of the transmitter module based on a Adafruit M0 Feather RFM69. It uses inputs from a joystick module and a force sensor. It uses a 128x64 I2C OLED LED module, 10 segment LED bar graph, buttons, 2 color LEDs, 1 RGB LED and a buzzer for output. It sends commands to the RX module.
 - **pi/host** - On the Raspberry Pi, it is the communicator between the SBC and RX. It sets the state of the SBC on RX, (is envisioned to) host Python scripts (other processes) that run for AI training, control and other purposes. opens a named FIFO to pass data to such processes on one thread and recieves and transmits control commands and events to and from RX.
