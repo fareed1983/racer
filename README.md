@@ -17,3 +17,7 @@ This repository contains the source code for all software components of a self-d
 - **training** - The main.py in this folder is used to train a CNN based neural network model with the training images recorded with pi/progs/trainData and uses the control inputs as labels. It then displays the training loss graph as epochs progress.
 - **pi/progs/pilot1** - This program takes a trained model as input and runs in master mode sending commands to the PWM module. It is the self driver. It can either capture images live from the Raspberry Pi camera or can be provided a folder of images for simulated driving. It shows the current video frame and useful data.
 - **hw** - This contains the hardware schematic (not completed) and the CAD files for mounting the hardware on the Tamiya TT02 chassis.
+
+# Mentions
+
+A part of this project (WYSIWYG RXTX) won the [Melbourne Raspberry Pi Makers Group's 2004 Makers Challenge](https://melbourne-rpi.com.au/competition/)
