@@ -3,7 +3,7 @@
 # Introduction
 
 This repository contains the source code for all software components of a self-driving car platform. The primary focus areas are as follows:
-1. Software to drive roubst hardware platform to study autonomous vehicles
+1. Software to drive roubst hardware platform to study autonomous vehicles providing a unique driving experience (WYSIWYG RXTX)
 2. Study of CNN based neural networks for a self-driving R/C car
 3. Image augmentation to improve neural network performance in autonomous vehicles
 
@@ -18,6 +18,6 @@ This repository contains the source code for all software components of a self-d
 - **pi/progs/pilot1** - This program takes a trained model as input and runs in master mode sending commands to the PWM module. It is the self driver. It can either capture images live from the Raspberry Pi camera or can be provided a folder of images for simulated driving. It shows the current video frame and useful data.
 - **hw** - This contains the hardware schematic (not completed) and the CAD files for mounting the hardware on the Tamiya TT02 chassis.
 
-# Mentions
+# WYSIWYG RXTX
 
 A part of this project (WYSIWYG RXTX) won the [Melbourne Raspberry Pi Makers Group's 2004 Makers Challenge](https://melbourne-rpi.com.au/competition/)
